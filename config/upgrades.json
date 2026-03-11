@@ -1,0 +1,52 @@
+[
+  {
+    "id": "speed_shoes",
+    "name": "Speed Shoes",
+    "description": "Move faster between tables and kitchen",
+    "base_cost": 300,
+    "cost_multiplier": 1.8,
+    "effect_type": "player_speed",
+    "effect_value": 0.2,
+    "max_level": 3
+  },
+  {
+    "id": "kitchen_upgrade",
+    "name": "Kitchen Upgrade",
+    "description": "Reduce all cooking times",
+    "base_cost": 500,
+    "cost_multiplier": 2.0,
+    "effect_type": "cook_speed",
+    "effect_value": 0.2,
+    "max_level": 3
+  },
+  {
+    "id": "extra_kitchen_slot",
+    "name": "Extra Kitchen Slot",
+    "description": "Cook one more dish simultaneously",
+    "base_cost": 800,
+    "cost_multiplier": 2.5,
+    "effect_type": "kitchen_capacity",
+    "effect_value": 1,
+    "max_level": 2
+  },
+  {
+    "id": "marketing",
+    "name": "Marketing",
+    "description": "Attract wealthier customers",
+    "base_cost": 400,
+    "cost_multiplier": 1.6,
+    "effect_type": "wealthy_bonus",
+    "effect_value": 0.15,
+    "max_level": 3
+  },
+  {
+    "id": "buy_table",
+    "name": "Buy Table",
+    "description": "Add a new table for more customers",
+    "base_cost": 600,
+    "cost_multiplier": 1.5,
+    "effect_type": "buy_table",
+    "effect_value": 1,
+    "max_level": 4
+  }
+]

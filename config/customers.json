@@ -1,0 +1,38 @@
+[
+  {
+    "id": "budget",
+    "name": "Budget",
+    "patience": 45.0,
+    "wealth_mult": 0.8,
+    "tip_range": [0, 3],
+    "spawn_weight": 5,
+    "color_key": "customer"
+  },
+  {
+    "id": "normal",
+    "name": "Normal",
+    "patience": 35.0,
+    "wealth_mult": 1.0,
+    "tip_range": [2, 8],
+    "spawn_weight": 4,
+    "color_key": "customer"
+  },
+  {
+    "id": "wealthy",
+    "name": "Wealthy",
+    "patience": 28.0,
+    "wealth_mult": 1.8,
+    "tip_range": [5, 25],
+    "spawn_weight": 2,
+    "color_key": "customer_wealthy"
+  },
+  {
+    "id": "vip",
+    "name": "VIP",
+    "patience": 22.0,
+    "wealth_mult": 3.0,
+    "tip_range": [15, 60],
+    "spawn_weight": 1,
+    "color_key": "customer_vip"
+  }
+]

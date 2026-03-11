@@ -1,0 +1,41 @@
+{
+  "name": "Default Restaurant",
+  "width": 12,
+  "height": 10,
+  "layout": [
+    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+    [1, 0, 2, 0, 2, 0, 2, 0, 2, 0, 0, 1],
+    [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
+    [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
+    [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
+    [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
+    [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
+    [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
+    [1, 0, 3, 3, 3, 0, 0, 0, 0, 0, 0, 1],
+    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
+  ],
+  "tile_legend": {
+    "0": "floor",
+    "1": "wall",
+    "2": "table",
+    "3": "kitchen_counter"
+  },
+  "tables": [
+    { "id": 0, "grid_x": 2, "grid_y": 1 },
+    { "id": 1, "grid_x": 4, "grid_y": 1 },
+    { "id": 2, "grid_x": 6, "grid_y": 1 },
+    { "id": 3, "grid_x": 8, "grid_y": 1 }
+  ],
+  "kitchen_counters": [
+    { "grid_x": 2, "grid_y": 8 },
+    { "grid_x": 3, "grid_y": 8 },
+    { "grid_x": 4, "grid_y": 8 }
+  ],
+  "player_start": { "grid_x": 5, "grid_y": 5 },
+  "purchasable_tables": [
+    { "id": 4, "grid_x": 2, "grid_y": 3 },
+    { "id": 5, "grid_x": 4, "grid_y": 3 },
+    { "id": 6, "grid_x": 6, "grid_y": 3 },
+    { "id": 7, "grid_x": 8, "grid_y": 3 }
+  ]
+}

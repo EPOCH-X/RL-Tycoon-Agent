@@ -1,0 +1,32 @@
+[
+  {
+    "id": "coffee",
+    "name": "Coffee",
+    "cook_time": 3.0,
+    "price": 15
+  },
+  {
+    "id": "sandwich",
+    "name": "Sandwich",
+    "cook_time": 5.0,
+    "price": 25
+  },
+  {
+    "id": "pasta",
+    "name": "Pasta",
+    "cook_time": 8.0,
+    "price": 45
+  },
+  {
+    "id": "steak",
+    "name": "Steak",
+    "cook_time": 12.0,
+    "price": 80
+  },
+  {
+    "id": "sushi_set",
+    "name": "Sushi Set",
+    "cook_time": 15.0,
+    "price": 120
+  }
+]
