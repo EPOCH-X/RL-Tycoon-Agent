@@ -182,7 +182,7 @@ class TycoonEnv(gymnasium.Env):
                 w = self.shop.grid_width * TILE_SIZE
                 h = self.shop.grid_height * TILE_SIZE + UI_HEIGHT
                 self._screen = pygame.display.set_mode((w, h))
-                pygame.display.set_caption("RL Tycoon – Training")
+                pygame.display.set_caption("RL 타이쿤 – 학습 중")
                 self._renderer = Renderer(AssetManager(ASSETS_DIR))
 
             self._screen.fill(COLORS["background"])

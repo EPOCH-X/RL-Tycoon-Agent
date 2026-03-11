@@ -32,7 +32,7 @@ class VersusMode(BaseMode):
         screen_w = self.map_w * 2 + VERSUS_DIVIDER_WIDTH
         screen_h = self.map_h
         super().__init__(screen_w, screen_h,
-                         title="RL Tycoon – Human vs AI")
+                         title="RL 타이쿤 – 대결 모드")
 
         self.am = AssetManager()
         self.renderer_left = Renderer(self.am)
@@ -156,8 +156,14 @@ class VersusMode(BaseMode):
                                  offset_x=right_ox, offset_y=0)
 
         # Labels
-        font = pygame.font.SysFont(None, 20)
-        lbl_h = font.render("HUMAN", True, (100, 200, 255))
+        available = [f.lower() for f in pygame.font.get_fonts()]
+        kr_font = None
+        for fn in ["malgungothic", "gulim", "dotum", "nanumgothic"]:
+            if fn in available:
+                kr_font = fn
+                break
+        font = pygame.font.SysFont(kr_font, 20)
+        lbl_h = font.render("플레이어", True, (100, 200, 255))
         self.screen.blit(lbl_h, (self.map_w // 2
                                  - lbl_h.get_width() // 2, 2))
         lbl_a = font.render("AI", True, (255, 150, 100))
@@ -181,10 +187,10 @@ class VersusMode(BaseMode):
 
     def _winner_text(self) -> str:
         if self.winner == "human":
-            return "Winner: HUMAN!"
+            return "승자: 플레이어!"
         if self.winner == "ai":
-            return "Winner: AI!"
-        return "It's a DRAW!"
+            return "승자: AI!"
+        return "무승부!"
 
     def _build_ai_obs(self):
         """Lightweight observation for the AI agent.

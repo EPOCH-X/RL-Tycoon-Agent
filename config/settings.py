@@ -29,7 +29,7 @@ DEFAULT_TARGET_MONEY = 5000
 DEFAULT_DAY_LIMIT = 30          # in-game days
 DAY_LENGTH = 60.0               # real seconds per in-game day
 
-CUSTOMER_SPAWN_INTERVAL = 4.0   # base seconds between spawns
+CUSTOMER_SPAWN_INTERVAL = 8.0   # base seconds between spawns
 MAX_CUSTOMERS = 4               # max simultaneous seated customers
 KITCHEN_CAPACITY = 3            # max dishes cooking at once
 

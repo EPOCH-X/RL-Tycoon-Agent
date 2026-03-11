@@ -124,7 +124,7 @@ class Shop:
 
         # ── customer spawn ───────────────────────
         self._base_weights = [ct["spawn_weight"] for ct in self.customer_types]
-        self.customer_spawn_timer: float = 2.0
+        self.customer_spawn_timer: float = CUSTOMER_SPAWN_INTERVAL
         self.spawn_rate_mult: float = 1.0
         self.cook_speed_mult: float = 1.0
         self.wealthy_bonus: float = 0.0
@@ -249,7 +249,7 @@ class Shop:
         self.customers_lost = 0
         self.satisfaction_history.clear()
         self.shop_rating = 0.5
-        self.customer_spawn_timer = 2.0
+        self.customer_spawn_timer = CUSTOMER_SPAWN_INTERVAL
         self.upgrade_mode = False
         self.upgrade_tab = 0
 
@@ -373,12 +373,17 @@ class Shop:
         if self.delivery_unlocked:
             self._update_delivery(dt)
 
-        # 8) Spawn customers
+        # 8) 손님 스폰 (만족도 기반)
         self.customer_spawn_timer -= dt
         if self.customer_spawn_timer <= 0:
             self._try_spawn_customer()
-            interval = CUSTOMER_SPAWN_INTERVAL / max(0.5, self.spawn_rate_mult)
-            self.customer_spawn_timer = max(1.5, interval)
+            base_interval = CUSTOMER_SPAWN_INTERVAL / max(0.5, self.spawn_rate_mult)
+            # 평점이 높을수록 손님이 자주 방문
+            rating_factor = max(0.6, 1.8 - self.shop_rating * 1.2)
+            # 초반에는 느리게, 후반에는 점점 빨라짐
+            day_factor = max(0.7, 1.3 - (self.current_day - 1) * 0.02)
+            adjusted = base_interval * rating_factor * day_factor
+            self.customer_spawn_timer = max(3.0, adjusted)
 
         # 9) Trait system (day-based check)
         self._check_trait_offer()
@@ -537,7 +542,7 @@ class Shop:
     def _interact_table(self, table: Table) -> float:
         cust = table.customer
         if cust is None:
-            self._msg("Empty table")
+            self._msg("빈 테이블입니다")
             return 0.0
 
         # ── Take order ───────────────────────────
@@ -548,7 +553,7 @@ class Shop:
             cust.take_order()
             names = ", ".join(m["name"] for m in cust.menu_items[:2])
             extra = f" +{len(cust.menu_items)-2}" if len(cust.menu_items) > 2 else ""
-            self._msg(f"Order: {names}{extra}")
+            self._msg(f"주문: {names}{extra}")
             return 2.0
 
         # ── Serve food ───────────────────────────
@@ -562,10 +567,10 @@ class Shop:
                         self.player.carrying.remove(f)
                         served += 1
                 if served:
-                    self._msg(f"Served {served} dish(es)!")
+                    self._msg(f"{served}개 서빙 완료!")
                     return 5.0 * served
             elif not foods:
-                self._msg("Wrong table!")
+                self._msg("다른 테이블입니다!")
                 return -2.0
 
         # ── Serve drink ──────────────────────────
@@ -577,16 +582,16 @@ class Shop:
                 for d in drinks:
                     cust.serve_drink()
                     self.player.carrying.remove(d)
-                self._msg("Drink served!")
+                self._msg("음료 서빙 완료!")
                 return 3.0
 
         if self.player.has_order:
-            self._msg("Deliver orders to kitchen first!")
+            self._msg("먼저 주방에 주문을 전달하세요!")
         elif self.player.has_food:
-            self._msg("Wrong table!")
+            self._msg("다른 테이블입니다!")
             return -2.0
         else:
-            self._msg("Already ordered")
+            self._msg("이미 주문을 받았습니다")
         return 0.0
 
     def _interact_kitchen(self) -> float:
@@ -608,10 +613,10 @@ class Shop:
                     self.bar.submit_drink(order["table_id"], order["drink_item"])
 
             if submitted:
-                self._msg(f"Cooking {submitted} dish(es)")
+                self._msg(f"{submitted}개 조리 시작")
                 return 1.0 * submitted
             else:
-                self._msg("Kitchen full!")
+                self._msg("주방이 가득 찼습니다!")
             return 0.0
 
         # ── Pick up food ─────────────────────────
@@ -619,32 +624,32 @@ class Shop:
             while self.player.can_carry_more and self.kitchen.has_ready:
                 dish = self.kitchen.pick_up()
                 self.player.pick_up_food(dish["table_id"], dish["menu_item"])
-            self._msg(f"Picked up food (x{len([c for c in self.player.carrying if c['type']=='food'])})")
+            self._msg(f"음식 수거 (x{len([c for c in self.player.carrying if c['type']=='food'])})")
             return 1.0
 
         if self.player.has_food or self.player.has_drink:
-            self._msg("Serve items first!")
+            self._msg("먼저 서빙을 완료하세요!")
         elif not self.kitchen.has_ready:
-            self._msg("Nothing ready yet")
+            self._msg("아직 완성된 요리가 없습니다")
         return 0.0
 
     def _interact_bar(self) -> float:
         """Interact with bar counter to pick up ready drinks."""
         if not self.bartender_hired:
-            self._msg("No bartender hired!")
+            self._msg("바텐더가 없습니다!")
             return 0.0
 
         if self.player.can_carry_more and self.bar.has_ready:
             drink = self.bar.pick_up()
             if drink:
                 self.player.pick_up_drink(drink["table_id"], drink["drink_item"])
-                self._msg(f"Picked up {drink['drink_item']['name']}")
+                self._msg(f"{drink['drink_item']['name']} 수거 완료")
                 return 1.0
 
         if not self.bar.has_ready:
-            self._msg("No drinks ready")
+            self._msg("완성된 음료가 없습니다")
         else:
-            self._msg("Hands full!")
+            self._msg("손이 가득 찼습니다!")
         return 0.0
 
     # ═══════════════════════════════════════════════
@@ -781,17 +786,17 @@ class Shop:
 
         level = self.upgrade_levels[upgrade_id]
         if level >= upg["max_level"]:
-            self._msg("Max level!")
+            self._msg("최대 레벨입니다!")
             return False
 
         required = upg.get("unlock_profit", 0)
         if self.net_profit < required:
-            self._msg(f"Need net profit ${required}!")
+            self._msg(f"순이익 ${required} 필요!")
             return False
 
         cost = int(upg["base_cost"] * (upg["cost_multiplier"] ** level))
         if self.money < cost:
-            self._msg(f"Need ${cost}!")
+            self._msg(f"${cost} 필요!")
             return False
 
         self.money -= cost
@@ -814,20 +819,20 @@ class Shop:
     def _unlock_food(self, food_item: dict) -> bool:
         fid = food_item["id"]
         if fid in self.unlocked_food:
-            self._msg("Already unlocked!")
+            self._msg("이미 해금되었습니다!")
             return False
         req = food_item.get("unlock_profit", 0)
         if self.net_profit < req:
-            self._msg(f"Need net profit ${req}!")
+            self._msg(f"순이익 ${req} 필요!")
             return False
         cost = food_item.get("unlock_cost", 0)
         if self.money < cost:
-            self._msg(f"Need ${cost}!")
+            self._msg(f"${cost} 필요!")
             return False
         self.money -= cost
         self.total_spent += cost
         self.unlocked_food.add(fid)
-        self._msg(f"Unlocked: {food_item['name']}!")
+        self._msg(f"해금: {food_item['name']}!")
         return True
 
     def _apply_upgrade(self, upg: dict):
@@ -848,11 +853,11 @@ class Shop:
             self._hire_employee("waiter")
         elif etype == "hire_bartender":
             self.bartender_hired = True
-            self._msg("Bartender hired! Bar is open!")
+            self._msg("바텐더 고용! 바 영업 시작!")
         elif etype == "hire_delivery":
             self.delivery_unlocked = True
             self.delivery_timer = self.delivery_config.get("order_interval", 10)
-            self._msg("Delivery service started!")
+            self._msg("배달 서비스 시작!")
 
     def _activate_next_table(self):
         if not self._purchasable_tables:
@@ -913,7 +918,7 @@ class Shop:
         emp = Employee(x, y, self._next_emp_id)
         self._next_emp_id += 1
         self.employees.append(emp)
-        self._msg(f"Employee #{emp.emp_id} hired!")
+        self._msg(f"종업원 #{emp.emp_id} 고용!")
 
     def _update_employees(self, dt: float):
         for emp in self.employees:
@@ -1125,7 +1130,7 @@ class Shop:
         self.trait_choices = []
         interval = self.traits_config.get("offer_interval_days", 5)
         self.next_trait_day = self.current_day + interval
-        self._msg(f"Trait: {trait['name']}!")
+        self._msg(f"특성: {trait['name']}!")
         return True
 
     def auto_select_trait(self):

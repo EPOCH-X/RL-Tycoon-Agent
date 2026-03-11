@@ -3,35 +3,35 @@
   "items": [
     {
       "id": "water",
-      "name": "Water",
+      "name": "물",
       "prep_time": 1.0,
       "price": 5,
       "unlock_profit": 0
     },
     {
       "id": "juice",
-      "name": "Juice",
+      "name": "주스",
       "prep_time": 2.0,
       "price": 12,
       "unlock_profit": 0
     },
     {
       "id": "lemonade",
-      "name": "Lemonade",
+      "name": "레모네이드",
       "prep_time": 2.5,
       "price": 18,
       "unlock_profit": 2000
     },
     {
       "id": "cocktail",
-      "name": "Cocktail",
+      "name": "칵테일",
       "prep_time": 4.0,
       "price": 35,
       "unlock_profit": 5000
     },
     {
       "id": "wine",
-      "name": "Wine",
+      "name": "와인",
       "prep_time": 3.0,
       "price": 50,
       "unlock_profit": 8000

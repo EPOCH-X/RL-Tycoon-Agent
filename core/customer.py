@@ -24,7 +24,7 @@ class CustomerState:
     LEAVING_ANGRY = "leaving_angry"
 
 
-EATING_TIME = 3.0
+EATING_TIME = 5.0
 
 
 class Customer(Entity):

@@ -23,10 +23,23 @@ class Renderer:
     # ── lazy font init (needs pygame.init first) ─
     def _ensure_fonts(self):
         if not self._fonts_ok:
-            self.font_sm = pygame.font.SysFont(None, 16)
-            self.font_md = pygame.font.SysFont(None, 24)
-            self.font_lg = pygame.font.SysFont(None, 36)
+            font_name = self._find_korean_font()
+            self.font_sm = pygame.font.SysFont(font_name, 16)
+            self.font_md = pygame.font.SysFont(font_name, 24)
+            self.font_lg = pygame.font.SysFont(font_name, 36)
             self._fonts_ok = True
+
+    @staticmethod
+    def _find_korean_font():
+        """Find a Korean-supporting system font."""
+        available = [f.lower() for f in pygame.font.get_fonts()]
+        korean_fonts = ["malgungothic", "malgunbd", "gulim", "dotum",
+                        "batang", "nanumgothic", "nanumbarungothic",
+                        "applegothic", "nanumgothicbold"]
+        for name in korean_fonts:
+            if name in available:
+                return name
+        return None
 
     # ═══════════════════════════════════════════════
     #  Main entry point
@@ -121,12 +134,12 @@ class Renderer:
 
             if kitchen.num_cooking > 0:
                 ct = self.font_sm.render(
-                    f"Cook:{kitchen.num_cooking}", True, COLORS["text"])
+                    f"조리:{kitchen.num_cooking}", True, COLORS["text"])
                 surface.blit(ct, (rx + 2, ry + 2))
 
             if kitchen.has_ready:
                 rt = self.font_sm.render(
-                    f"Ready:{len(kitchen.ready)}", True, (255, 255, 100))
+                    f"완성:{len(kitchen.ready)}", True, (255, 255, 100))
                 surface.blit(rt, (rx + 2, ry + TILE_SIZE - 16))
 
             bar_x = rx + TILE_SIZE + 4
@@ -138,9 +151,9 @@ class Renderer:
                 by = ry + i * 18
                 bw = TILE_SIZE - 8
                 nm = self.font_sm.render(
-                    order["menu_item"]["name"][:6], True, (200, 200, 200))
+                    order["menu_item"]["name"][:4], True, (200, 200, 200))
                 surface.blit(nm, (bar_x, by))
-                bbx = bar_x + 48
+                bbx = bar_x + 56
                 pygame.draw.rect(surface, (60, 60, 60), (bbx, by + 2, bw, 8))
                 pygame.draw.rect(surface, (80, 220, 80),
                                  (bbx, by + 2, int(bw * ratio), 8))
@@ -167,10 +180,10 @@ class Renderer:
                 icon = self.font_sm.render("?!", True, (255, 255, 255))
             elif cust.state == CustomerState.ORDER_TAKEN:
                 remaining = cust.group_size - cust.food_served_count
-                lbl = f"{remaining}x" if remaining > 1 else cust.menu_item["name"][:5]
+                lbl = f"{remaining}x" if remaining > 1 else cust.menu_item["name"][:3]
                 icon = self.font_sm.render(lbl, True, (200, 200, 100))
             elif cust.state == CustomerState.EATING:
-                icon = self.font_sm.render("nom", True, (100, 255, 100))
+                icon = self.font_sm.render("냠냠", True, (100, 255, 100))
             else:
                 icon = self.font_sm.render("...", True, (150, 150, 150))
             surface.blit(icon, icon.get_rect(center=body.center))
@@ -182,7 +195,7 @@ class Renderer:
 
             # Drink indicator (top-right)
             if cust.drink_item and not cust.drink_served:
-                di = self.font_sm.render("D", True, (180, 100, 255))
+                di = self.font_sm.render("음", True, (180, 100, 255))
                 surface.blit(di, (cx + TILE_SIZE - 14, cy + 2))
 
             if cust.state in (CustomerState.WAITING_TO_ORDER,
@@ -211,7 +224,7 @@ class Renderer:
 
         # ── money + net profit ───────────────────
         mtxt = self.font_md.render(
-            f"${shop.money}  (Net: ${shop.net_profit})",
+            f"${shop.money}  (순이익: ${shop.net_profit})",
             True, COLORS["money"])
         surface.blit(mtxt, (ox + 10, y0))
 
@@ -219,7 +232,7 @@ class Renderer:
         rem = shop.time_remaining
         m, s = int(rem) // 60, int(rem) % 60
         dtxt = self.font_md.render(
-            f"Day {shop.current_day}/{shop.day_limit}  {m}:{s:02d}",
+            f"{shop.current_day}일차/{shop.day_limit}일  {m}:{s:02d}",
             True, COLORS["timer"])
         surface.blit(dtxt, dtxt.get_rect(
             centerx=ox + map_w // 2, top=y0))
@@ -227,7 +240,7 @@ class Renderer:
         # ── satisfaction ─────────────────────────
         rating_pct = int(shop.shop_rating * 100)
         stxt = self.font_md.render(
-            f"Rating: {rating_pct}%", True, COLORS["satisfaction"])
+            f"평점: {rating_pct}%", True, COLORS["satisfaction"])
         surface.blit(stxt, stxt.get_rect(right=ox + map_w - 10, top=y0))
 
         # ── carrying indicator ───────────────────
@@ -237,33 +250,33 @@ class Renderer:
             parts = []
             for c in items[:3]:
                 if c["type"] == "order":
-                    parts.append(f"ORD(T{c['table_id']})")
+                    parts.append(f"주문(T{c['table_id']})")
                 elif c["type"] == "food":
-                    parts.append(f"FOOD(T{c['table_id']})")
+                    parts.append(f"음식(T{c['table_id']})")
                 elif c["type"] == "drink":
-                    parts.append(f"DRK(T{c['table_id']})")
-            clbl = "Carry: " + " | ".join(parts)
+                    parts.append(f"음료(T{c['table_id']})")
+            clbl = "운반: " + " | ".join(parts)
             ccol = (200, 200, 100) if items[0]["type"] == "order" else (100, 220, 100)
         else:
-            clbl = "Carrying: -"
+            clbl = "운반: -"
             ccol = (120, 120, 120)
         ctxt = self.font_sm.render(clbl, True, ccol)
         surface.blit(ctxt, (ox + 10, y1))
 
         # ── stats + hints ────────────────────────
         parts2 = [
-            f"Served:{shop.customers_served}",
-            f"Lost:{shop.customers_lost}",
-            f"Kitchen:{shop.kitchen.num_cooking}/{shop.kitchen.capacity}",
-            f"Tables:{len(shop.tables)}",
+            f"서빙:{shop.customers_served}",
+            f"이탈:{shop.customers_lost}",
+            f"주방:{shop.kitchen.num_cooking}/{shop.kitchen.capacity}",
+            f"테이블:{len(shop.tables)}",
         ]
         if shop.employees:
-            parts2.append(f"Emp:{len(shop.employees)}")
+            parts2.append(f"직원:{len(shop.employees)}")
         if shop.bartender_hired:
-            parts2.append(f"Bar:{shop.bar.num_preparing}")
+            parts2.append(f"바:{shop.bar.num_preparing}")
         if shop.delivery_unlocked:
-            parts2.append(f"Del:{len(shop.delivery_orders)}")
-        parts2.append("[U] Shop")
+            parts2.append(f"배달:{len(shop.delivery_orders)}")
+        parts2.append("[U] 상점")
         stat = self.font_sm.render("  ".join(parts2), True, (150, 150, 150))
         surface.blit(stat, (ox + 10, y1 + 18))
 
@@ -298,7 +311,7 @@ class Renderer:
 
         # Title with net profit
         title = self.font_md.render(
-            f"SHOP  ${shop.money}  Net:${shop.net_profit}",
+            f"상점  ${shop.money}  순이익:${shop.net_profit}",
             True, (255, 215, 0))
         surface.blit(title, title.get_rect(
             centerx=panel_x + panel_w // 2, top=panel_y + 8))
@@ -344,20 +357,20 @@ class Renderer:
             if is_food:
                 nm_str = f"{data['name']}  ${data['price']}"
                 if maxed:
-                    nm_str += "  [UNLOCKED]"
+                    nm_str += "  [해금됨]"
                     nm_col = (80, 180, 80)
                 elif locked:
-                    nm_str += f"  (Need net ${data.get('unlock_profit', 0)})"
+                    nm_str += f"  (순이익 ${data.get('unlock_profit', 0)} 필요)"
                     nm_col = (100, 100, 100)
                 else:
                     nm_col = (255, 255, 255) if can_afford else (180, 120, 120)
             else:
                 level = entry["level"]
                 if maxed:
-                    nm_str = f"{data['name']}  MAX"
+                    nm_str = f"{data['name']}  최대"
                     nm_col = (80, 80, 80)
                 elif locked:
-                    nm_str = f"{data['name']}  (Need net ${data.get('unlock_profit', 0)})"
+                    nm_str = f"{data['name']}  (순이익 ${data.get('unlock_profit', 0)} 필요)"
                     nm_col = (100, 100, 100)
                 else:
                     nm_str = f"{data['name']}  Lv.{level}/{data['max_level']}"
@@ -380,7 +393,7 @@ class Renderer:
 
         # Close hint
         hint = self.font_sm.render(
-            "[Tab] switch  |  [1-9] buy  |  [U/ESC] close",
+            "[Tab] 탭 전환  |  [1-9] 구매  |  [U/ESC] 닫기",
             True, (120, 120, 120))
         surface.blit(hint, hint.get_rect(
             centerx=panel_x + panel_w // 2,
@@ -414,11 +427,11 @@ class Renderer:
 
             if bar.num_preparing > 0:
                 ct = self.font_sm.render(
-                    f"Mix:{bar.num_preparing}", True, COLORS["text"])
+                    f"제조:{bar.num_preparing}", True, COLORS["text"])
                 surface.blit(ct, (rx + 2, ry + 2))
             if bar.has_ready:
                 rt = self.font_sm.render(
-                    f"Ready:{len(bar.ready)}", True, (220, 160, 255))
+                    f"완성:{len(bar.ready)}", True, (220, 160, 255))
                 surface.blit(rt, (rx + 2, ry + TILE_SIZE - 16))
 
     # ═══════════════════════════════════════════════
@@ -431,7 +444,7 @@ class Renderer:
             radius = 14
             pygame.draw.circle(surface, emp.color, (int(ecx), int(ecy)), radius)
             pygame.draw.circle(surface, (0, 0, 0), (int(ecx), int(ecy)), radius, 1)
-            lbl = self.font_sm.render(f"E{emp.emp_id}", True, (255, 255, 255))
+            lbl = self.font_sm.render(f"직{emp.emp_id}", True, (255, 255, 255))
             surface.blit(lbl, lbl.get_rect(center=(int(ecx), int(ecy))))
 
     # ═══════════════════════════════════════════════
@@ -456,7 +469,7 @@ class Renderer:
         pygame.draw.rect(surface, (200, 160, 255), (px, py, pw, ph), 2)
 
         title = self.font_md.render(
-            f"Trait Selection  (Day {shop.current_day})", True, (255, 200, 100))
+            f"특성 선택  ({shop.current_day}일차)", True, (255, 200, 100))
         surface.blit(title, title.get_rect(centerx=px + pw // 2, top=py + 10))
 
         for i, trait in enumerate(choices):
@@ -489,22 +502,22 @@ class Renderer:
         cy = offset_y + h // 2
 
         if shop.won:
-            title = self.font_lg.render("TARGET REACHED!", True, (255, 215, 0))
+            title = self.font_lg.render("목표 달성!", True, (255, 215, 0))
         else:
-            title = self.font_lg.render("TIME'S UP!", True, (255, 100, 100))
+            title = self.font_lg.render("시간 종료!", True, (255, 100, 100))
         surface.blit(title, title.get_rect(center=(cx, cy - 30)))
 
         sub = self.font_md.render(
-            f"Money: ${shop.money}  Net Profit: ${shop.net_profit}"
-            f"  Rating: {int(shop.shop_rating * 100)}%"
+            f"보유금: ${shop.money}  순이익: ${shop.net_profit}"
+            f"  평점: {int(shop.shop_rating * 100)}%"
             f"   {extra_text}", True, (200, 200, 200))
         surface.blit(sub, sub.get_rect(center=(cx, cy + 10)))
 
         stat = self.font_sm.render(
-            f"Served: {shop.customers_served}  Lost: {shop.customers_lost}",
+            f"서빙: {shop.customers_served}  이탈: {shop.customers_lost}",
             True, (160, 160, 160))
         surface.blit(stat, stat.get_rect(center=(cx, cy + 35)))
 
-        hint = self.font_sm.render("Press R to restart  |  ESC to quit",
+        hint = self.font_sm.render("R: 재시작  |  ESC: 종료",
                                    True, (160, 160, 160))
         surface.blit(hint, hint.get_rect(center=(cx, cy + 55)))

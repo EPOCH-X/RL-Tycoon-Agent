@@ -21,7 +21,7 @@ class HumanMode(BaseMode):
         self.shop = Shop(target_money=target_money, day_limit=day_limit)
         w = self.shop.grid_width * TILE_SIZE
         h = self.shop.grid_height * TILE_SIZE + UI_HEIGHT
-        super().__init__(w, h, title="RL Tycoon – Human Mode")
+        super().__init__(w, h, title="RL 타이쿤 – 솔로 모드")
 
         self.am = AssetManager()
         self.renderer = Renderer(self.am)
