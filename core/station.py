@@ -3,6 +3,7 @@
 Station types:
   table           – where customers sit; player takes orders / serves food here
   kitchen_counter – player submits orders and picks up cooked food
+  bar_counter     – bartender prepares drinks; player picks up and serves
 """
 
 from config.settings import TILE_SIZE
@@ -39,19 +40,18 @@ class Table:
 
 
 class Kitchen:
-    """The centralised kitchen. Manages a queue of cooking orders.
+    """The centralised kitchen.  Manages a queue of cooking orders.
 
     Orders submitted by the player are cooked here in parallel
-    (up to *capacity* at a time). Completed dishes wait in a ready queue
-    for the player to pick up.
+    (up to *capacity* at a time).  Completed dishes wait in a ready queue
+    for the player to pick up.  Delivery dishes land in a separate queue.
     """
 
     def __init__(self, capacity: int = 3):
         self.capacity = capacity
-        # cooking: list of {"table_id", "menu_item", "timer"}
         self.cooking: list[dict] = []
-        # ready: list of {"table_id", "menu_item"}
         self.ready: list[dict] = []
+        self.delivery_ready: list[dict] = []
 
     @property
     def can_accept(self) -> bool:
@@ -65,19 +65,27 @@ class Kitchen:
     def num_cooking(self) -> int:
         return len(self.cooking)
 
-    def submit_order(self, table_id: int, menu_item: dict) -> bool:
-        """Submit an order. Returns True on success."""
+    def submit_order(self, table_id: int, menu_item: dict,
+                     *, delivery: bool = False,
+                     cook_time_reduction: float = 0.0,
+                     cook_time_override: float | None = None) -> bool:
+        """Submit an order.  Returns True on success."""
         if not self.can_accept:
             return False
+        if cook_time_override is not None:
+            timer = max(1.0, cook_time_override)
+        else:
+            timer = max(1.0, float(menu_item["cook_time"]) - cook_time_reduction)
         self.cooking.append({
             "table_id": table_id,
             "menu_item": menu_item,
-            "timer": float(menu_item["cook_time"]),
+            "timer": timer,
+            "delivery": delivery,
         })
         return True
 
     def pick_up(self) -> dict | None:
-        """Pick up the first ready dish. Returns dict or None."""
+        """Pick up the first ready dish.  Returns dict or None."""
         if self.ready:
             return self.ready.pop(0)
         return None
@@ -88,14 +96,77 @@ class Kitchen:
         for order in self.cooking:
             order["timer"] -= dt * cook_speed_mult
             if order["timer"] <= 0:
-                self.ready.append({
+                dish = {
                     "table_id": order["table_id"],
                     "menu_item": order["menu_item"],
-                })
+                }
+                if order.get("delivery"):
+                    self.delivery_ready.append(dish)
+                else:
+                    self.ready.append(dish)
             else:
                 still_cooking.append(order)
         self.cooking = still_cooking
 
     def reset(self):
         self.cooking.clear()
+        self.ready.clear()
+        self.delivery_ready.clear()
+
+
+class BarStation:
+    """Bar counter – prepares drinks.  Operated by the bartender (auto-prep).
+
+    Drinks are queued here when a customer orders a drink.  The bartender
+    prepares them automatically.  Ready drinks are picked up by the
+    player or employee and served to the table.
+    """
+
+    def __init__(self, capacity: int = 2):
+        self.capacity = capacity
+        self.preparing: list[dict] = []
+        self.ready: list[dict] = []
+
+    @property
+    def can_accept(self) -> bool:
+        return len(self.preparing) < self.capacity
+
+    @property
+    def has_ready(self) -> bool:
+        return len(self.ready) > 0
+
+    @property
+    def num_preparing(self) -> int:
+        return len(self.preparing)
+
+    def submit_drink(self, table_id: int, drink_item: dict) -> bool:
+        if not self.can_accept:
+            return False
+        self.preparing.append({
+            "table_id": table_id,
+            "drink_item": drink_item,
+            "timer": float(drink_item["prep_time"]),
+        })
+        return True
+
+    def pick_up(self) -> dict | None:
+        if self.ready:
+            return self.ready.pop(0)
+        return None
+
+    def update(self, dt: float):
+        still_preparing = []
+        for order in self.preparing:
+            order["timer"] -= dt
+            if order["timer"] <= 0:
+                self.ready.append({
+                    "table_id": order["table_id"],
+                    "drink_item": order["drink_item"],
+                })
+            else:
+                still_preparing.append(order)
+        self.preparing = still_preparing
+
+    def reset(self):
+        self.preparing.clear()
         self.ready.clear()

@@ -6,7 +6,9 @@
     "wealth_mult": 0.8,
     "tip_range": [0, 3],
     "spawn_weight": 5,
-    "color_key": "customer"
+    "color_key": "customer",
+    "group_size": [1, 1],
+    "unlock_rating": 0.0
   },
   {
     "id": "normal",
@@ -15,24 +17,63 @@
     "wealth_mult": 1.0,
     "tip_range": [2, 8],
     "spawn_weight": 4,
-    "color_key": "customer"
+    "color_key": "customer",
+    "group_size": [1, 1],
+    "unlock_rating": 0.0
+  },
+  {
+    "id": "family",
+    "name": "Family",
+    "patience": 42.0,
+    "wealth_mult": 1.2,
+    "tip_range": [5, 18],
+    "spawn_weight": 2,
+    "color_key": "customer_family",
+    "group_size": [2, 4],
+    "unlock_rating": 0.3
+  },
+  {
+    "id": "tourist",
+    "name": "Tourist",
+    "patience": 32.0,
+    "wealth_mult": 1.5,
+    "tip_range": [8, 25],
+    "spawn_weight": 2,
+    "color_key": "customer_tourist",
+    "group_size": [1, 2],
+    "unlock_rating": 0.4
   },
   {
     "id": "wealthy",
     "name": "Wealthy",
     "patience": 28.0,
     "wealth_mult": 1.8,
-    "tip_range": [5, 25],
+    "tip_range": [10, 35],
     "spawn_weight": 2,
-    "color_key": "customer_wealthy"
+    "color_key": "customer_wealthy",
+    "group_size": [1, 1],
+    "unlock_rating": 0.5
   },
   {
     "id": "vip",
     "name": "VIP",
     "patience": 22.0,
     "wealth_mult": 3.0,
-    "tip_range": [15, 60],
+    "tip_range": [20, 70],
     "spawn_weight": 1,
-    "color_key": "customer_vip"
+    "color_key": "customer_vip",
+    "group_size": [1, 1],
+    "unlock_rating": 0.7
+  },
+  {
+    "id": "critic",
+    "name": "Critic",
+    "patience": 18.0,
+    "wealth_mult": 2.5,
+    "tip_range": [25, 100],
+    "spawn_weight": 1,
+    "color_key": "customer_critic",
+    "group_size": [1, 1],
+    "unlock_rating": 0.8
   }
 ]

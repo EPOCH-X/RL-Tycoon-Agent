@@ -1,0 +1,70 @@
+{
+  "offer_interval_days": 5,
+  "choices_per_offer": 3,
+  "traits": [
+    {
+      "id": "gourmet",
+      "name": "고급 음식",
+      "description": "모든 음식 가격 +$2",
+      "effect": "food_price_bonus",
+      "value": 2,
+      "max_stacks": 5
+    },
+    {
+      "id": "master_chef",
+      "name": "달인",
+      "description": "조리 시간 -1초",
+      "effect": "cook_time_reduction",
+      "value": 1.0,
+      "max_stacks": 3
+    },
+    {
+      "id": "skilled_server",
+      "name": "숙련된 서빙",
+      "description": "한번에 2개 운반 가능",
+      "effect": "carry_capacity",
+      "value": 1,
+      "max_stacks": 1
+    },
+    {
+      "id": "charming",
+      "name": "매력적",
+      "description": "팁 +30%",
+      "effect": "tip_bonus",
+      "value": 0.3,
+      "max_stacks": 3
+    },
+    {
+      "id": "efficient",
+      "name": "효율적",
+      "description": "이동 속도 +15%",
+      "effect": "speed_bonus",
+      "value": 0.15,
+      "max_stacks": 3
+    },
+    {
+      "id": "popular",
+      "name": "인기",
+      "description": "손님 방문 빈도 +20%",
+      "effect": "spawn_rate",
+      "value": 0.2,
+      "max_stacks": 3
+    },
+    {
+      "id": "patient_service",
+      "name": "친절한 서비스",
+      "description": "손님 인내심 +5초",
+      "effect": "patience_bonus",
+      "value": 5.0,
+      "max_stacks": 3
+    },
+    {
+      "id": "tip_jar",
+      "name": "팁 항아리",
+      "description": "기본 팁 +$3",
+      "effect": "base_tip",
+      "value": 3,
+      "max_stacks": 3
+    }
+  ]
+}

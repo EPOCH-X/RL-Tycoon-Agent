@@ -29,7 +29,6 @@ class HumanMode(BaseMode):
 
     # ── events ───────────────────────────────────
     def handle_events(self):
-        self._interact_pressed = False
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 self.running = False
@@ -38,18 +37,35 @@ class HumanMode(BaseMode):
                 if event.key == pygame.K_ESCAPE:
                     if self.shop.upgrade_mode:
                         self.shop.upgrade_mode = False
+                    elif self.shop.trait_selection_active:
+                        pass  # can't dismiss trait popup
                     else:
                         self.running = False
                         return
+
+                # ── Trait selection (highest priority) ──
+                if self.shop.trait_selection_active:
+                    for i, k in enumerate([pygame.K_1, pygame.K_2, pygame.K_3]):
+                        if event.key == k:
+                            self.shop.select_trait(i)
+                    continue
+
                 if event.key == pygame.K_u:
                     self.shop.upgrade_mode = not self.shop.upgrade_mode
+
+                # Tab key to cycle upgrade tabs
+                if self.shop.upgrade_mode and event.key == pygame.K_TAB:
+                    self.shop.upgrade_tab = (self.shop.upgrade_tab + 1) % 3
+
                 # Upgrade buying (when panel is open)
                 if self.shop.upgrade_mode:
-                    for i, k in enumerate([pygame.K_1, pygame.K_2,
-                                           pygame.K_3, pygame.K_4,
-                                           pygame.K_5]):
+                    num_keys = [pygame.K_1, pygame.K_2, pygame.K_3,
+                                pygame.K_4, pygame.K_5, pygame.K_6,
+                                pygame.K_7, pygame.K_8, pygame.K_9]
+                    for i, k in enumerate(num_keys):
                         if event.key == k:
                             self.shop.buy_upgrade_by_index(i)
+
                 if event.key in (pygame.K_SPACE, pygame.K_RETURN):
                     self._interact_pressed = True
                 if event.key == pygame.K_r and self.shop.done:

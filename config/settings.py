@@ -38,6 +38,10 @@ PLAYER_SPEED = 180              # pixels per second
 PLAYER_RADIUS = 18              # collision half-width (pixels)
 INTERACT_RANGE = 80             # max pixel distance for interaction
 
+# Employee
+EMPLOYEE_SPEED = 120            # pixels per second (slower than player)
+EMPLOYEE_ACTION_DELAY = 0.8     # seconds to complete an action (take order, etc.)
+
 # Satisfaction
 SATISFACTION_HISTORY_LEN = 20   # rolling window for shop rating
 LOST_CUSTOMER_PENALTY = 30      # money penalty when customer leaves angry
@@ -70,11 +74,19 @@ COLORS = {
     "customer_angry":   (220, 80,  50),
     "customer_wealthy": (180, 120, 220),
     "customer_vip":     (255, 215, 0),
+    "customer_family":  (180, 200, 100),
+    "customer_tourist": (100, 180, 220),
+    "customer_critic":  (220, 50,  50),
     "table":            (139, 90,  43),
     "table_occupied":   (160, 110, 60),
     "kitchen":          (180, 60,  60),
     "kitchen_cooking":  (220, 100, 50),
     "kitchen_ready":    (80,  220, 80),
+    "bar":              (100, 60,  140),
+    "bar_ready":        (160, 100, 220),
+    "employee":         (80,  200, 160),
+    "employee_carry":   (120, 240, 190),
+    "delivery":         (200, 140, 60),
     "text":             (255, 255, 255),
     "ui_bg":            (30,  30,  50),
     "money":            (255, 215, 0),

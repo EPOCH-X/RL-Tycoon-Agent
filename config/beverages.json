@@ -1,0 +1,40 @@
+{
+  "unlock_profit": 1000,
+  "items": [
+    {
+      "id": "water",
+      "name": "Water",
+      "prep_time": 1.0,
+      "price": 5,
+      "unlock_profit": 0
+    },
+    {
+      "id": "juice",
+      "name": "Juice",
+      "prep_time": 2.0,
+      "price": 12,
+      "unlock_profit": 0
+    },
+    {
+      "id": "lemonade",
+      "name": "Lemonade",
+      "prep_time": 2.5,
+      "price": 18,
+      "unlock_profit": 2000
+    },
+    {
+      "id": "cocktail",
+      "name": "Cocktail",
+      "prep_time": 4.0,
+      "price": 35,
+      "unlock_profit": 5000
+    },
+    {
+      "id": "wine",
+      "name": "Wine",
+      "prep_time": 3.0,
+      "price": 50,
+      "unlock_profit": 8000
+    }
+  ]
+}

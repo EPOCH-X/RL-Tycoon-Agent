@@ -21,7 +21,8 @@ from core.customer import CustomerState
 # Menu-item id mapping (must stay in sync with config/menu.json)
 MENU_IDS = {
     "coffee": 1, "sandwich": 2, "pasta": 3,
-    "steak": 4, "sushi_set": 5,
+    "steak": 4, "sushi_set": 5, "lobster": 6,
+    "wagyu": 7, "truffle_course": 8,
 }
 NUM_MENU = len(MENU_IDS) + 1   # +1 for empty/unknown
 
@@ -40,7 +41,8 @@ def _obs_size(shop: Shop) -> int:
         + 2                          # carry_table_id, carry_menu_id
         + shop.max_tables * 4        # table: occupied, state, menu_id, patience
         + 3                          # kitchen: cooking count, ready count, capacity ratio
-        + 5                          # money_ratio, day_ratio, time_ratio, shop_rating, can_upgrade
+        + 8                          # money_ratio, day_ratio, time_ratio, shop_rating,
+                                     # can_upgrade, net_profit_ratio, employee_count, bar+delivery
     )
 
 
@@ -56,18 +58,24 @@ def build_observation(shop: Shop) -> np.ndarray:
     obs[idx]     = shop.player.x / map_px_w
     obs[idx + 1] = shop.player.y / map_px_h
     obs[idx + 2] = shop.player.facing / 3.0
-    # carry type: 0=idle, 0.5=order, 1.0=food
+    # carry type: 0=idle, 0.33=order, 0.66=food, 1.0=drink
     if shop.player.has_order:
-        obs[idx + 3] = 0.5
+        obs[idx + 3] = 0.33
     elif shop.player.has_food:
+        obs[idx + 3] = 0.66
+    elif shop.player.has_drink:
         obs[idx + 3] = 1.0
     idx += 4
 
-    # Carry details
-    if shop.player.carrying:
-        obs[idx]     = shop.player.carrying["table_id"] / max(1, shop.max_tables)
-        mid = MENU_IDS.get(shop.player.carrying["menu_item"]["id"], 0)
-        obs[idx + 1] = mid / NUM_MENU
+    # Carry details (first carried item)
+    first = shop.player.first_carried
+    if first:
+        tid = first.get("table_id", 0)
+        obs[idx] = tid / max(1, shop.max_tables)
+        mi = first.get("menu_item") or (first.get("items", [None])[0] if first.get("items") else None)
+        if mi:
+            mid = MENU_IDS.get(mi.get("id", ""), 0)
+            obs[idx + 1] = mid / NUM_MENU
     idx += 2
 
     # ── Tables (fixed-size: max_tables slots) ────
@@ -77,7 +85,9 @@ def build_observation(shop: Shop) -> np.ndarray:
             if cust is not None:
                 obs[idx]     = 1.0
                 obs[idx + 1] = _STATE_ENC.get(cust.state, 0.0)
-                obs[idx + 2] = MENU_IDS.get(cust.menu_item["id"], 0) / NUM_MENU
+                mi = cust.menu_item
+                if mi:
+                    obs[idx + 2] = MENU_IDS.get(mi["id"], 0) / NUM_MENU
                 obs[idx + 3] = cust.patience_ratio
         idx += 4
 
@@ -104,6 +114,14 @@ def build_observation(shop: Shop) -> np.ndarray:
                 can_buy = 1.0
                 break
     obs[idx + 4] = can_buy
+    obs[idx + 5] = min(1.0, shop.net_profit / max(1, shop.target_money))
+    obs[idx + 6] = len(shop.employees) / 4.0
+    bar_del = 0.0
+    if shop.bartender_hired:
+        bar_del += 0.5
+    if shop.delivery_unlocked:
+        bar_del += 0.5
+    obs[idx + 7] = bar_del
 
     return obs
 
@@ -137,6 +155,8 @@ class TycoonEnv(gymnasium.Env):
 
     def step(self, action):
         reward = self.shop.step(int(action))
+        # Auto-select traits for RL agent
+        self.shop.auto_select_trait()
         obs = build_observation(self.shop)
         terminated = self.shop.done
         truncated = False

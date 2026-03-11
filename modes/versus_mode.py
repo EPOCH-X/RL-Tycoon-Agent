@@ -45,7 +45,6 @@ class VersusMode(BaseMode):
 
     # ── events ───────────────────────────────────
     def handle_events(self):
-        self._interact_pressed = False
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 self.running = False
@@ -57,12 +56,23 @@ class VersusMode(BaseMode):
                     else:
                         self.running = False
                         return
+
+                # Trait selection for human side
+                if self.human_shop.trait_selection_active:
+                    for i, k in enumerate([pygame.K_1, pygame.K_2, pygame.K_3]):
+                        if event.key == k:
+                            self.human_shop.select_trait(i)
+                    continue
+
                 if event.key == pygame.K_u:
                     self.human_shop.upgrade_mode = not self.human_shop.upgrade_mode
+                if self.human_shop.upgrade_mode and event.key == pygame.K_TAB:
+                    self.human_shop.upgrade_tab = (self.human_shop.upgrade_tab + 1) % 3
                 if self.human_shop.upgrade_mode:
-                    for i, k in enumerate([pygame.K_1, pygame.K_2,
-                                           pygame.K_3, pygame.K_4,
-                                           pygame.K_5]):
+                    num_keys = [pygame.K_1, pygame.K_2, pygame.K_3,
+                                pygame.K_4, pygame.K_5, pygame.K_6,
+                                pygame.K_7, pygame.K_8, pygame.K_9]
+                    for i, k in enumerate(num_keys):
                         if event.key == k:
                             self.human_shop.buy_upgrade_by_index(i)
                 if event.key in (pygame.K_SPACE, pygame.K_RETURN):
@@ -104,6 +114,9 @@ class VersusMode(BaseMode):
         obs = self._build_ai_obs()
         ai_action = self.agent.predict(obs)
         self.ai_shop.step(ai_action)
+
+        # AI auto-selects traits
+        self.ai_shop.auto_select_trait()
 
         # Sync time (both shops share the same clock)
         self.ai_shop.time_elapsed = self.human_shop.time_elapsed

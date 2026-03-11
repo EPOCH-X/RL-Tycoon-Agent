@@ -1,0 +1,51 @@
+{
+  "_comment": "강화학습 하이퍼파라미터 설정. 팀원별로 자유롭게 수정하세요.",
+
+  "algorithm": "PPO",
+  "policy": "MlpPolicy",
+
+  "training": {
+    "total_timesteps": 200000,
+    "n_envs": 4,
+    "seed": 42,
+    "eval_freq": 5000
+  },
+
+  "hyperparameters": {
+    "learning_rate": 3e-4,
+    "n_steps": 2048,
+    "batch_size": 64,
+    "n_epochs": 10,
+    "gamma": 0.99,
+    "gae_lambda": 0.95,
+    "clip_range": 0.2,
+    "ent_coef": 0.01,
+    "vf_coef": 0.5,
+    "max_grad_norm": 0.5
+  },
+
+  "network": {
+    "net_arch": [128, 128],
+    "activation_fn": "tanh"
+  },
+
+  "reward_shaping": {
+    "_comment": "보상 가중치. 각 이벤트별 보상값을 조정하세요.",
+    "serve_food": 5.0,
+    "take_order": 2.0,
+    "submit_kitchen": 1.0,
+    "pickup_food": 1.0,
+    "serve_drink": 3.0,
+    "buy_upgrade": 3.0,
+    "lost_customer_penalty": 30.0,
+    "wrong_table_penalty": 2.0,
+    "no_upgrade_penalty": 0.1,
+    "win_bonus": 200.0
+  },
+
+  "game_overrides": {
+    "_comment": "게임 환경 파라미터 오버라이드 (null이면 기본값 사용)",
+    "target_money": null,
+    "day_limit": null
+  }
+}

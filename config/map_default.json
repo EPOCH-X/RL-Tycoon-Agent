@@ -11,14 +11,15 @@
     [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
     [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
     [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
-    [1, 0, 3, 3, 3, 0, 0, 0, 0, 0, 0, 1],
+    [1, 0, 3, 3, 3, 0, 0, 4, 4, 0, 0, 1],
     [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
   ],
   "tile_legend": {
     "0": "floor",
     "1": "wall",
     "2": "table",
-    "3": "kitchen_counter"
+    "3": "kitchen_counter",
+    "4": "bar_counter"
   },
   "tables": [
     { "id": 0, "grid_x": 2, "grid_y": 1 },
@@ -30,6 +31,10 @@
     { "grid_x": 2, "grid_y": 8 },
     { "grid_x": 3, "grid_y": 8 },
     { "grid_x": 4, "grid_y": 8 }
+  ],
+  "bar_counters": [
+    { "grid_x": 7, "grid_y": 8 },
+    { "grid_x": 8, "grid_y": 8 }
   ],
   "player_start": { "grid_x": 5, "grid_y": 5 },
   "purchasable_tables": [

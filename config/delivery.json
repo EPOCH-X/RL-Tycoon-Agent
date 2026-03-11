@@ -1,0 +1,7 @@
+{
+  "unlock_profit": 4000,
+  "order_interval": 10.0,
+  "delivery_time": 12.0,
+  "price_multiplier": 0.85,
+  "tip_range": [3, 12]
+}
