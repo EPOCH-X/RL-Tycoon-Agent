@@ -101,7 +101,7 @@ def train(args):
         max_grad_norm=hp.get("max_grad_norm", 0.5),
         policy_kwargs=policy_kwargs if policy_kwargs else None,
         tensorboard_log=os.path.join(save_path, "tb_logs"),
-        device="auto",  # GPU 사용 가능 시 자동 감지
+        device="cpu",  # MLP 정책은 CPU가 더 빠름 (GPU 전송 오버헤드)
     )
 
     eval_cb = EvalCallback(

@@ -5,7 +5,7 @@
 
   "training": {
     "total_timesteps": 200000,
-    "n_envs": 4,
+    "n_envs": 8,
     "seed": 42,
     "eval_freq": 5000
   },

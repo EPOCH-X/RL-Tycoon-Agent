@@ -21,7 +21,7 @@ import torch.nn.functional as F
 from torch.optim import Adam
 
 from algorithms.base import BaseTrainer
-from algorithms.common import load_algo_config, make_env, save_run_config
+from algorithms.common import load_algo_config, make_env, save_run_config, EarlyStopTracker
 
 
 # ────────────────────────────────────────────────
@@ -181,6 +181,7 @@ class SACTrainer(BaseTrainer):
         replay = ReplayBuffer(buffer_size)
         env = make_env(0, self._seed, self._game_ov, self._reward_cfg)()
         eval_env = make_env(0, self._seed + 1000, self._game_ov, self._reward_cfg)()
+        early_stop = EarlyStopTracker(patience=50, min_delta=1.0, verbose=1)
 
         obs, _ = env.reset()
         episode_rewards = []
@@ -220,6 +221,9 @@ class SACTrainer(BaseTrainer):
                 if eval_r > best_eval:
                     best_eval = eval_r
                     self.save(os.path.join(self.save_path, "best_model"))
+                if not early_stop.check(eval_r):
+                    print(f"  [SAC] Early stopped at step {step}")
+                    break
 
         self.save(os.path.join(self.save_path, "final_model"))
         env.close()

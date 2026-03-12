@@ -16,12 +16,12 @@ from typing import Any
 import numpy as np
 from stable_baselines3 import PPO
 from stable_baselines3.common.vec_env import DummyVecEnv
-from stable_baselines3.common.callbacks import BaseCallback
+from stable_baselines3.common.callbacks import BaseCallback, EvalCallback
 
 from algorithms.base import BaseTrainer
 from algorithms.common import (
     load_algo_config, build_policy_kwargs, save_run_config,
-    get_sb3_device,
+    get_sb3_device, EarlyStopCallback,
 )
 from algorithms.marl.self_play_env import SelfPlayEnv
 
@@ -145,10 +145,11 @@ class MARLTrainer(BaseTrainer):
 
         self._pool = OpponentPool(max_size=pool_size)
         policy_kwargs = build_policy_kwargs(net)
-        device = get_sb3_device()
+        policy_type = self.cfg.get("policy", "MlpPolicy")
+        device = get_sb3_device(policy_type)
 
         self.model = PPO(
-            self.cfg.get("policy", "MlpPolicy"),
+            policy_type,
             self.train_env,
             verbose=1,
             learning_rate=hp.get("learning_rate", 3e-4),
@@ -170,12 +171,23 @@ class MARLTrainer(BaseTrainer):
     def train(self) -> dict[str, Any]:
         assert self.model is not None, "call build() first"
 
+        early_cb = EarlyStopCallback(patience=50, min_delta=1.0, verbose=1)
+        eval_env = DummyVecEnv([lambda: SelfPlayEnv()])
+        eval_cb = EvalCallback(
+            eval_env,
+            best_model_save_path=self.save_path,
+            log_path=os.path.join(self.save_path, "eval_logs"),
+            eval_freq=self.cfg.get("training", {}).get("eval_freq", 5000),
+            deterministic=True,
+            callback_after_eval=early_cb,
+        )
+
         sp_cb = SelfPlayCallback(
             self._pool, self._raw_envs,
             update_freq=self._update_freq, verbose=1,
         )
 
-        self.model.learn(total_timesteps=self._timesteps, callback=sp_cb)
+        self.model.learn(total_timesteps=self._timesteps, callback=[eval_cb, sp_cb])
         self.save(os.path.join(self.save_path, "final_model"))
         self.train_env.close()
         print(f"[✓] MARL Self-play training complete. "
@@ -195,8 +207,7 @@ class MARLTrainer(BaseTrainer):
             }, path + "_pool.pt")
 
     def load(self, path: str) -> None:
-        device = get_sb3_device()
-        self.model = PPO.load(path, device=device)
+        self.model = PPO.load(path, device="cpu")
         pool_path = path + "_pool.pt"
         if os.path.isfile(pool_path):
             import torch

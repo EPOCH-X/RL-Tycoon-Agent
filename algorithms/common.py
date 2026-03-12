@@ -4,9 +4,11 @@ import os
 import json
 from typing import Any
 
+import numpy as np
 import torch
 import torch.nn as nn
 from stable_baselines3.common.vec_env import DummyVecEnv, SubprocVecEnv
+from stable_baselines3.common.callbacks import BaseCallback
 
 from config.settings import load_json_config
 from ai.gym_env import TycoonEnv
@@ -23,25 +25,30 @@ def get_device(force_cpu: bool = False) -> torch.device:
     if torch.cuda.is_available():
         device = torch.device("cuda")
         gpu_name = torch.cuda.get_device_name(0)
-        gpu_mem = torch.cuda.get_device_properties(0).total_mem / (1024**3)
+        gpu_mem = torch.cuda.get_device_properties(0).total_memory / (1024**3)
         print(f"  [GPU] Using CUDA: {gpu_name} ({gpu_mem:.1f} GB)")
         return device
     print("  [GPU] CUDA not available, using CPU")
     return torch.device("cpu")
 
 
-def get_sb3_device() -> str:
+def get_sb3_device(policy: str = "MlpPolicy") -> str:
     """SB3 알고리즘용 디바이스 문자열을 반환합니다.
 
-    SB3는 'auto', 'cuda', 'cpu' 문자열을 받습니다.
+    SB3 MLP 정책은 네트워크가 작아 CPU가 더 빠릅니다 (GPU↔CPU 전송 오버헤드).
+    CNN 정책일 때만 GPU를 사용합니다.
     """
+    is_cnn = "Cnn" in policy
     if torch.cuda.is_available():
         gpu_name = torch.cuda.get_device_name(0)
-        gpu_mem = torch.cuda.get_device_properties(0).total_mem / (1024**3)
-        print(f"  [GPU] SB3 will use CUDA: {gpu_name} ({gpu_mem:.1f} GB)")
-        return "auto"
-    print("  [GPU] CUDA not available, SB3 will use CPU")
-    return "auto"
+        if is_cnn:
+            print(f"  [Device] SB3 CNN → CUDA: {gpu_name}")
+            return "auto"
+        else:
+            print(f"  [Device] SB3 MLP → CPU (small network, GPU overhead 불리)")
+            return "cpu"
+    print("  [Device] CUDA not available → CPU")
+    return "cpu"
 
 
 def load_algo_config(algo_name: str, config_path: str | None = None) -> dict:
@@ -114,3 +121,109 @@ def save_run_config(save_path: str, cfg: dict) -> None:
     with open(os.path.join(save_path, "train_config_used.json"), "w",
               encoding="utf-8") as f:
         json.dump(cfg, f, indent=2, ensure_ascii=False)
+
+
+# ────────────────────────────────────────────────
+# Early Stopping (SB3 Callback)
+# ────────────────────────────────────────────────
+class EarlyStopCallback(BaseCallback):
+    """SB3 EvalCallback의 callback_after_eval로 사용하는 Early Stopping.
+
+    eval_freq마다 호출되며, patience 횟수 연속 개선이 없으면 학습을 중단합니다.
+
+    Parameters
+    ----------
+    patience : int
+        개선 없이 허용할 최대 평가 횟수.
+    min_delta : float
+        개선으로 인정할 최소 보상 변화량.
+    verbose : int
+        0 = 무음, 1 = 중단 시 출력, 2 = 매 평가 출력.
+    """
+
+    def __init__(self, patience: int = 50, min_delta: float = 1.0,
+                 verbose: int = 1):
+        super().__init__(verbose)
+        self.patience = patience
+        self.min_delta = min_delta
+        self.best_reward: float = -np.inf
+        self.wait: int = 0
+
+    def _on_step(self) -> bool:
+        # parent(EvalCallback)가 self.parent에 mean_reward를 기록
+        parent = self.parent
+        if parent is None:
+            return True
+
+        mean_reward = parent.last_mean_reward
+        if mean_reward is None:
+            return True
+
+        if mean_reward > self.best_reward + self.min_delta:
+            self.best_reward = mean_reward
+            self.wait = 0
+            if self.verbose >= 2:
+                print(f"  [EarlyStop] New best: {mean_reward:.1f}")
+        else:
+            self.wait += 1
+            if self.verbose >= 2:
+                print(f"  [EarlyStop] No improve: {self.wait}/{self.patience} "
+                      f"(best={self.best_reward:.1f}, current={mean_reward:.1f})")
+
+        if self.wait >= self.patience:
+            if self.verbose >= 1:
+                print(f"\n  [EarlyStop] ★ 학습 조기 종료! "
+                      f"{self.patience}회 연속 개선 없음 "
+                      f"(best={self.best_reward:.1f}, "
+                      f"steps={self.num_timesteps})")
+            return False  # 학습 중단
+        return True
+
+
+# ────────────────────────────────────────────────
+# Early Stopping (Custom PyTorch trainers용)
+# ────────────────────────────────────────────────
+class EarlyStopTracker:
+    """Custom PyTorch 트레이너(SAC, A3C, ModelBased)용 Early Stopping 트래커.
+
+    Parameters
+    ----------
+    patience : int
+        개선 없이 허용할 최대 평가 횟수.
+    min_delta : float
+        개선으로 인정할 최소 보상 변화량.
+    """
+
+    def __init__(self, patience: int = 50, min_delta: float = 1.0,
+                 verbose: int = 1):
+        self.patience = patience
+        self.min_delta = min_delta
+        self.verbose = verbose
+        self.best_reward: float = -np.inf
+        self.wait: int = 0
+
+    def check(self, eval_reward: float) -> bool:
+        """개선 여부를 확인하고, 중단할지 반환합니다.
+
+        Returns
+        -------
+        bool
+            True면 학습 계속, False면 학습 중단.
+        """
+        if eval_reward > self.best_reward + self.min_delta:
+            self.best_reward = eval_reward
+            self.wait = 0
+            return True
+
+        self.wait += 1
+        if self.verbose >= 2:
+            print(f"  [EarlyStop] No improve: {self.wait}/{self.patience} "
+                  f"(best={self.best_reward:.1f}, current={eval_reward:.1f})")
+
+        if self.wait >= self.patience:
+            if self.verbose >= 1:
+                print(f"\n  [EarlyStop] ★ 학습 조기 종료! "
+                      f"{self.patience}회 연속 개선 없음 "
+                      f"(best={self.best_reward:.1f})")
+            return False
+        return True

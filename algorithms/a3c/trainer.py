@@ -27,7 +27,7 @@ import torch.nn.functional as F
 import torch.multiprocessing as mp
 
 from algorithms.base import BaseTrainer
-from algorithms.common import load_algo_config, make_env, make_vec_env, save_run_config, get_device
+from algorithms.common import load_algo_config, make_env, make_vec_env, save_run_config, get_device, EarlyStopTracker
 from algorithms.a3c.network import ActorCritic
 
 
@@ -233,6 +233,7 @@ class A3CTrainer(BaseTrainer):
         total_steps = 0
         episode_count = 0
         best_eval = float("-inf")
+        early_stop = EarlyStopTracker(patience=50, min_delta=1.0, verbose=1)
 
         print(f"  [A3C-GPU] Training with {n_envs} vectorized envs on {self.device}")
 
@@ -307,6 +308,9 @@ class A3CTrainer(BaseTrainer):
                 if eval_r > best_eval:
                     best_eval = eval_r
                     self.save(os.path.join(self.save_path, "best_model"))
+                if not early_stop.check(eval_r):
+                    print(f"  [A3C-GPU] Early stopped at step {total_steps}")
+                    break
 
         vec_env.close()
         eval_env.close()

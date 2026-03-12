@@ -19,7 +19,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from algorithms.base import BaseTrainer
-from algorithms.common import load_algo_config, make_env, save_run_config
+from algorithms.common import load_algo_config, make_env, save_run_config, EarlyStopTracker
 from algorithms.model_based.world_model import WorldModel, WorldModelTrainer
 
 
@@ -235,6 +235,7 @@ class ModelBasedTrainer(BaseTrainer):
         ep_reward = 0.0
         best_eval = float("-inf")
         use_mpc = True  # 초반엔 MPC, 후반엔 정책 네트워크 사용
+        early_stop = EarlyStopTracker(patience=50, min_delta=1.0, verbose=1)
 
         for step in range(1, self._timesteps + 1):
             # 행동 선택: MPC 또는 Policy
@@ -290,6 +291,9 @@ class ModelBasedTrainer(BaseTrainer):
                 if eval_r > best_eval:
                     best_eval = eval_r
                     self.save(os.path.join(self.save_path, "best_model"))
+                if not early_stop.check(eval_r):
+                    print(f"  [ModelBased] Early stopped at step {step}")
+                    break
 
         self.save(os.path.join(self.save_path, "final_model"))
         env.close()

@@ -14,7 +14,7 @@ from stable_baselines3.common.callbacks import EvalCallback
 from algorithms.base import BaseTrainer
 from algorithms.common import (
     load_algo_config, make_vec_env, build_policy_kwargs,
-    save_run_config, get_sb3_device,
+    save_run_config, get_sb3_device, EarlyStopCallback,
 )
 
 
@@ -54,10 +54,11 @@ class DQNTrainer(BaseTrainer):
                                      force_dummy=True)
 
         policy_kwargs = build_policy_kwargs(net)
-        device = get_sb3_device()
+        policy_type = self.cfg.get("policy", "MlpPolicy")
+        device = get_sb3_device(policy_type)
 
         self.model = DQN(
-            self.cfg.get("policy", "MlpPolicy"),
+            policy_type,
             self.train_env,
             verbose=1,
             learning_rate=hp.get("learning_rate", 1e-4),
@@ -85,6 +86,8 @@ class DQNTrainer(BaseTrainer):
             log_path=os.path.join(self.save_path, "eval_logs"),
             eval_freq=eval_freq,
             deterministic=True,
+            callback_after_eval=EarlyStopCallback(
+                patience=50, min_delta=1.0, verbose=1),
         )
 
     def train(self) -> dict[str, Any]:
@@ -100,8 +103,7 @@ class DQNTrainer(BaseTrainer):
             self.model.save(path)
 
     def load(self, path: str) -> None:
-        device = get_sb3_device()
-        self.model = DQN.load(path, device=device)
+        self.model = DQN.load(path, device="cpu")
 
     def predict(self, obs, deterministic: bool = True) -> int:
         assert self.model is not None

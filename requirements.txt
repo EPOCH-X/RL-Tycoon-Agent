@@ -5,3 +5,6 @@ torch>=2.0.0
 stable-baselines3>=2.1.0
 matplotlib>=3.7.0
 tensorboard>=2.14.0
+
+
+# pip install torch --index-url https://download.pytorch.org/whl/cu126

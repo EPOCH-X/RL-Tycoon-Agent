@@ -40,3 +40,5 @@ wandb/
 # ── OS ──
 Thumbs.db
 Desktop.ini
+
+**__pycache__/
