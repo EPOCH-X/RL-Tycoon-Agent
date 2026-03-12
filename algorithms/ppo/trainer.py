@@ -12,7 +12,7 @@ from stable_baselines3.common.callbacks import EvalCallback
 from algorithms.base import BaseTrainer
 from algorithms.common import (
     load_algo_config, make_vec_env, build_policy_kwargs,
-    save_run_config,
+    save_run_config, get_sb3_device,
 )
 
 
@@ -52,6 +52,7 @@ class PPOTrainer(BaseTrainer):
                                      force_dummy=True)
 
         policy_kwargs = build_policy_kwargs(net)
+        device = get_sb3_device()
 
         self.model = PPO(
             self.cfg.get("policy", "MlpPolicy"),
@@ -70,6 +71,7 @@ class PPOTrainer(BaseTrainer):
             policy_kwargs=policy_kwargs if policy_kwargs else None,
             tensorboard_log=os.path.join(self.save_path, "tb_logs"),
             seed=seed,
+            device=device,
         )
 
         self._eval_cb = EvalCallback(
@@ -95,7 +97,8 @@ class PPOTrainer(BaseTrainer):
             self.model.save(path)
 
     def load(self, path: str) -> None:
-        self.model = PPO.load(path)
+        device = get_sb3_device()
+        self.model = PPO.load(path, device=device)
 
     def predict(self, obs, deterministic: bool = True) -> int:
         assert self.model is not None

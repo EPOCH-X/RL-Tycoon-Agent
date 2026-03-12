@@ -1,10 +1,18 @@
 """A3C Trainer – Asynchronous Advantage Actor-Critic (PyTorch 직접 구현).
 
 SB3에는 A3C가 포함되어 있지 않으므로 PyTorch로 직접 구현합니다.
-멀티프로세스 워커가 각자 환경과 상호작용하며 글로벌 모델을 비동기 업데이트합니다.
+
+GPU 사용 가능 시:
+  → 단일 프로세스 GPU A2C 모드 (GPU 텐서 연산으로 속도 향상)
+  → GPU에서는 멀티프로세스 공유 메모리가 불가능하므로
+    벡터화 환경 + 배치 업데이트로 대체합니다.
+
+GPU 없을 시:
+  → 기존 멀티프로세스 CPU A3C 모드
 
 핵심 특징:
-- 비동기 멀티 워커 학습 (SharedAdam + mp.Process)
+- GPU: 벡터화 환경 + 배치 Actor-Critic 업데이트 (A2C)
+- CPU: 비동기 멀티 워커 학습 (SharedAdam + mp.Process)
 - n-step return 기반 Advantage 계산
 - Entropy 보너스로 탐색 유도
 """
@@ -19,12 +27,12 @@ import torch.nn.functional as F
 import torch.multiprocessing as mp
 
 from algorithms.base import BaseTrainer
-from algorithms.common import load_algo_config, make_env, save_run_config
+from algorithms.common import load_algo_config, make_env, make_vec_env, save_run_config, get_device
 from algorithms.a3c.network import ActorCritic
 
 
 class SharedAdam(torch.optim.Adam):
-    """프로세스 간 공유되는 Adam optimizer."""
+    """프로세스 간 공유되는 Adam optimizer (CPU A3C용)."""
 
     def __init__(self, params, **kwargs):
         super().__init__(params, **kwargs)
@@ -34,7 +42,6 @@ class SharedAdam(torch.optim.Adam):
                 state["step"] = torch.zeros(1)
                 state["exp_avg"] = torch.zeros_like(p.data)
                 state["exp_avg_sq"] = torch.zeros_like(p.data)
-                # Share in memory
                 state["step"].share_memory_()
                 state["exp_avg"].share_memory_()
                 state["exp_avg_sq"].share_memory_()
@@ -43,7 +50,7 @@ class SharedAdam(torch.optim.Adam):
 def _worker(rank: int, global_model: ActorCritic, optimizer: SharedAdam,
             cfg: dict, global_counter: mp.Value, max_steps: int,
             save_path: str, results_queue: mp.Queue):
-    """A3C 워커 프로세스."""
+    """A3C 워커 프로세스 (CPU only)."""
     hp = cfg.get("hyperparameters", {})
     net_cfg = cfg.get("network", {})
     game_ov = cfg.get("game_overrides", {})
@@ -51,7 +58,6 @@ def _worker(rank: int, global_model: ActorCritic, optimizer: SharedAdam,
     seed = cfg.get("training", {}).get("seed", 42)
 
     gamma = hp.get("gamma", 0.99)
-    gae_lambda = hp.get("gae_lambda", 0.95)
     entropy_coef = hp.get("entropy_coef", 0.01)
     value_loss_coef = hp.get("value_loss_coef", 0.5)
     max_grad_norm = hp.get("max_grad_norm", 40.0)
@@ -77,13 +83,9 @@ def _worker(rank: int, global_model: ActorCritic, optimizer: SharedAdam,
         with global_counter.get_lock():
             if global_counter.value >= max_steps:
                 break
-        # Sync local ← global
         local_model.load_state_dict(global_model.state_dict())
 
-        log_probs = []
-        values = []
-        rewards = []
-        entropies = []
+        log_probs, values, rewards, entropies = [], [], [], []
 
         for _ in range(n_steps):
             obs_t = torch.FloatTensor(obs).unsqueeze(0)
@@ -110,7 +112,6 @@ def _worker(rank: int, global_model: ActorCritic, optimizer: SharedAdam,
                 episode_reward = 0.0
                 break
 
-        # Compute returns
         R = torch.tensor(0.0)
         if not (terminated or truncated):
             obs_t = torch.FloatTensor(obs).unsqueeze(0)
@@ -128,20 +129,16 @@ def _worker(rank: int, global_model: ActorCritic, optimizer: SharedAdam,
         entropies = torch.stack(entropies)
 
         advantages = returns - values.detach()
-
         policy_loss = -(log_probs * advantages).mean()
         value_loss = F.mse_loss(values, returns.detach())
         entropy_loss = -entropies.mean()
 
-        loss = (policy_loss
-                + value_loss_coef * value_loss
-                + entropy_coef * entropy_loss)
+        loss = policy_loss + value_loss_coef * value_loss + entropy_coef * entropy_loss
 
         optimizer.zero_grad()
         loss.backward()
         torch.nn.utils.clip_grad_norm_(local_model.parameters(), max_grad_norm)
 
-        # Push local gradients → global model
         for lp, gp in zip(local_model.parameters(), global_model.parameters()):
             if gp.grad is None:
                 gp._grad = lp.grad
@@ -163,6 +160,7 @@ class A3CTrainer(BaseTrainer):
         self._timesteps: int = 200_000
         self._obs_dim: int = 0
         self._act_dim: int = 0
+        self.device: torch.device = torch.device("cpu")
 
     def build(self, cfg: dict | None = None, config_path: str | None = None,
               save_path: str | None = None, **overrides) -> None:
@@ -178,22 +176,164 @@ class A3CTrainer(BaseTrainer):
         os.makedirs(self.save_path, exist_ok=True)
         save_run_config(self.save_path, self.cfg)
 
-        # 관측/행동 차원을 알아내기 위해 임시 환경 생성
         seed = t.get("seed", 42)
         tmp_env = make_env(0, seed, game_ov, reward_cfg)()
         self._obs_dim = tmp_env.observation_space.shape[0]
         self._act_dim = tmp_env.action_space.n
         tmp_env.close()
 
+        self.device = get_device()
+
         self.global_model = ActorCritic(
             self._obs_dim, self._act_dim,
             hidden_sizes=net.get("net_arch", [128, 128]),
             activation=net.get("activation_fn", "relu"),
         )
-        self.global_model.share_memory()
+
+        if self.device.type == "cuda":
+            # GPU 모드: 모델을 GPU로 이동
+            self.global_model = self.global_model.to(self.device)
+        else:
+            # CPU 모드: 공유 메모리로 설정 (멀티프로세스용)
+            self.global_model.share_memory()
 
     def train(self) -> dict[str, Any]:
         assert self.global_model is not None, "call build() first"
+
+        if self.device.type == "cuda":
+            return self._train_gpu()
+        else:
+            return self._train_cpu()
+
+    # ── GPU A2C 모드 (벡터화 환경 + 배치 업데이트) ──
+    def _train_gpu(self) -> dict[str, Any]:
+        """GPU 가속 A2C 학습 (단일 프로세스, 벡터화 환경)."""
+        hp = self.cfg.get("hyperparameters", {})
+        t = self.cfg.get("training", {})
+        game_ov = self.cfg.get("game_overrides", {})
+        reward_cfg = self.cfg.get("reward_shaping", {})
+
+        gamma = hp.get("gamma", 0.99)
+        entropy_coef = hp.get("entropy_coef", 0.01)
+        value_loss_coef = hp.get("value_loss_coef", 0.5)
+        max_grad_norm = hp.get("max_grad_norm", 40.0)
+        n_steps = hp.get("n_steps", 20)
+        lr = hp.get("learning_rate", 1e-4)
+        seed = t.get("seed", 42)
+        n_envs = t.get("n_workers", 4)
+        eval_freq = t.get("eval_freq", 5000)
+
+        optimizer = torch.optim.Adam(self.global_model.parameters(), lr=lr)
+
+        # 벡터화 환경 (CPU에서 실행, 관측만 GPU로 전송)
+        vec_env = make_vec_env(n_envs, seed, game_ov, reward_cfg, force_dummy=True)
+        eval_env = make_env(0, seed + 1000, game_ov, reward_cfg)()
+
+        obs_arr = vec_env.reset()
+        total_steps = 0
+        episode_count = 0
+        best_eval = float("-inf")
+
+        print(f"  [A3C-GPU] Training with {n_envs} vectorized envs on {self.device}")
+
+        while total_steps < self._timesteps:
+            # Collect n_steps of experience
+            mb_obs, mb_actions, mb_rewards, mb_dones = [], [], [], []
+            mb_log_probs, mb_values, mb_entropies = [], [], []
+
+            for _ in range(n_steps):
+                obs_t = torch.FloatTensor(obs_arr).to(self.device)
+                with torch.no_grad():
+                    logits, values = self.global_model(obs_t)
+                    probs = F.softmax(logits, dim=-1)
+                    dist = torch.distributions.Categorical(probs)
+                    actions = dist.sample()
+
+                mb_obs.append(obs_t)
+                mb_actions.append(actions)
+                mb_values.append(values.squeeze(-1))
+                mb_log_probs.append(dist.log_prob(actions))
+                mb_entropies.append(dist.entropy())
+
+                actions_np = actions.cpu().numpy()
+                obs_arr, rewards, dones, infos = vec_env.step(actions_np)
+
+                mb_rewards.append(torch.FloatTensor(rewards).to(self.device))
+                mb_dones.append(torch.FloatTensor(dones).to(self.device))
+
+                total_steps += n_envs
+                episode_count += sum(dones)
+
+            # Compute returns
+            with torch.no_grad():
+                last_obs_t = torch.FloatTensor(obs_arr).to(self.device)
+                _, last_values = self.global_model(last_obs_t)
+                last_values = last_values.squeeze(-1)
+
+            returns = []
+            R = last_values
+            for t_idx in reversed(range(n_steps)):
+                R = mb_rewards[t_idx] + gamma * R * (1.0 - mb_dones[t_idx])
+                returns.insert(0, R)
+
+            returns = torch.stack(returns)          # [n_steps, n_envs]
+            values = torch.stack(mb_values)         # [n_steps, n_envs]
+            log_probs = torch.stack(mb_log_probs)   # [n_steps, n_envs]
+            entropies = torch.stack(mb_entropies)   # [n_steps, n_envs]
+
+            advantages = returns - values.detach()
+
+            policy_loss = -(log_probs * advantages).mean()
+            value_loss = F.mse_loss(values, returns.detach())
+            entropy_loss = -entropies.mean()
+
+            loss = policy_loss + value_loss_coef * value_loss + entropy_coef * entropy_loss
+
+            optimizer.zero_grad()
+            loss.backward()
+            torch.nn.utils.clip_grad_norm_(self.global_model.parameters(), max_grad_norm)
+            optimizer.step()
+
+            # 로그
+            if total_steps % (eval_freq // 2) < n_envs * n_steps:
+                print(f"  [A3C-GPU] Steps: {total_steps}, Episodes: {episode_count}, "
+                      f"Loss: {loss.item():.4f}")
+
+            # 평가
+            if total_steps % eval_freq < n_envs * n_steps:
+                eval_r = self._evaluate_gpu(eval_env)
+                print(f"  [A3C-GPU] Eval at step {total_steps}: "
+                      f"mean_reward={eval_r:.1f}")
+                if eval_r > best_eval:
+                    best_eval = eval_r
+                    self.save(os.path.join(self.save_path, "best_model"))
+
+        vec_env.close()
+        eval_env.close()
+        self.save(os.path.join(self.save_path, "final_model"))
+        print(f"[✓] A3C-GPU training complete ({episode_count} episodes). "
+              f"Models → '{self.save_path}/'")
+        return {"algorithm": "A3C", "mode": "GPU-A2C",
+                "timesteps": self._timesteps,
+                "total_episodes": episode_count,
+                "save_path": self.save_path}
+
+    def _evaluate_gpu(self, env, n_episodes: int = 5) -> float:
+        total = 0.0
+        for _ in range(n_episodes):
+            obs, _ = env.reset()
+            done = False
+            while not done:
+                obs_t = torch.FloatTensor(obs).unsqueeze(0).to(self.device)
+                with torch.no_grad():
+                    action, _ = self.global_model.evaluate(obs_t)
+                obs, r, terminated, truncated, _ = env.step(action.item())
+                total += r
+                done = terminated or truncated
+        return total / n_episodes
+
+    # ── CPU A3C 모드 (멀티프로세스) ──
+    def _train_cpu(self) -> dict[str, Any]:
         mp.set_start_method("spawn", force=True)
 
         n_workers = self.cfg.get("training", {}).get("n_workers", 4)
@@ -214,7 +354,6 @@ class A3CTrainer(BaseTrainer):
             p.start()
             workers.append(p)
 
-        # Monitor
         total_episodes = 0
         while any(p.is_alive() for p in workers):
             while not results_queue.empty():
@@ -231,27 +370,32 @@ class A3CTrainer(BaseTrainer):
             p.join()
 
         self.save(os.path.join(self.save_path, "final_model"))
-        print(f"[✓] A3C training complete ({total_episodes} episodes). "
+        print(f"[✓] A3C-CPU training complete ({total_episodes} episodes). "
               f"Models → '{self.save_path}/'")
-        return {"algorithm": "A3C", "timesteps": self._timesteps,
+        return {"algorithm": "A3C", "mode": "CPU-A3C",
+                "timesteps": self._timesteps,
                 "total_episodes": total_episodes,
                 "save_path": self.save_path}
 
     def save(self, path: str) -> None:
         if self.global_model:
-            torch.save(self.global_model.state_dict(), path + ".pt")
+            # CPU로 옮겨서 저장 (호환성)
+            state_dict = {k: v.cpu() for k, v in self.global_model.state_dict().items()}
+            torch.save(state_dict, path + ".pt")
 
     def load(self, path: str) -> None:
         if self.global_model is None:
             raise RuntimeError("build() must be called before load()")
-        state = torch.load(path + ".pt", map_location="cpu")
+        state = torch.load(path + ".pt", map_location=self.device)
         self.global_model.load_state_dict(state)
+        self.global_model = self.global_model.to(self.device)
 
     def predict(self, obs, deterministic: bool = True) -> int:
         assert self.global_model is not None
-        obs_t = torch.FloatTensor(obs).unsqueeze(0)
-        if deterministic:
-            action, _ = self.global_model.evaluate(obs_t)
-        else:
-            action, _, _, _ = self.global_model.act(obs_t)
+        obs_t = torch.FloatTensor(obs).unsqueeze(0).to(self.device)
+        with torch.no_grad():
+            if deterministic:
+                action, _ = self.global_model.evaluate(obs_t)
+            else:
+                action, _, _, _ = self.global_model.act(obs_t)
         return int(action.item())

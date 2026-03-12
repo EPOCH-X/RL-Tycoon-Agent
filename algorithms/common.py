@@ -4,11 +4,44 @@ import os
 import json
 from typing import Any
 
+import torch
 import torch.nn as nn
 from stable_baselines3.common.vec_env import DummyVecEnv, SubprocVecEnv
 
 from config.settings import load_json_config
 from ai.gym_env import TycoonEnv
+
+
+def get_device(force_cpu: bool = False) -> torch.device:
+    """GPU 사용 가능 여부를 확인하고 적절한 디바이스를 반환합니다.
+
+    CUDA가 사용 가능하면 GPU를, 아니면 CPU를 반환합니다.
+    SB3 알고리즘에는 "auto"를 사용하세요 (SB3가 자체 판단).
+    """
+    if force_cpu:
+        return torch.device("cpu")
+    if torch.cuda.is_available():
+        device = torch.device("cuda")
+        gpu_name = torch.cuda.get_device_name(0)
+        gpu_mem = torch.cuda.get_device_properties(0).total_mem / (1024**3)
+        print(f"  [GPU] Using CUDA: {gpu_name} ({gpu_mem:.1f} GB)")
+        return device
+    print("  [GPU] CUDA not available, using CPU")
+    return torch.device("cpu")
+
+
+def get_sb3_device() -> str:
+    """SB3 알고리즘용 디바이스 문자열을 반환합니다.
+
+    SB3는 'auto', 'cuda', 'cpu' 문자열을 받습니다.
+    """
+    if torch.cuda.is_available():
+        gpu_name = torch.cuda.get_device_name(0)
+        gpu_mem = torch.cuda.get_device_properties(0).total_mem / (1024**3)
+        print(f"  [GPU] SB3 will use CUDA: {gpu_name} ({gpu_mem:.1f} GB)")
+        return "auto"
+    print("  [GPU] CUDA not available, SB3 will use CPU")
+    return "auto"
 
 
 def load_algo_config(algo_name: str, config_path: str | None = None) -> dict:

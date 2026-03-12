@@ -21,6 +21,7 @@ from stable_baselines3.common.callbacks import BaseCallback
 from algorithms.base import BaseTrainer
 from algorithms.common import (
     load_algo_config, build_policy_kwargs, save_run_config,
+    get_sb3_device,
 )
 from algorithms.marl.self_play_env import SelfPlayEnv
 
@@ -144,6 +145,7 @@ class MARLTrainer(BaseTrainer):
 
         self._pool = OpponentPool(max_size=pool_size)
         policy_kwargs = build_policy_kwargs(net)
+        device = get_sb3_device()
 
         self.model = PPO(
             self.cfg.get("policy", "MlpPolicy"),
@@ -162,6 +164,7 @@ class MARLTrainer(BaseTrainer):
             policy_kwargs=policy_kwargs if policy_kwargs else None,
             tensorboard_log=os.path.join(self.save_path, "tb_logs"),
             seed=seed,
+            device=device,
         )
 
     def train(self) -> dict[str, Any]:
@@ -192,7 +195,8 @@ class MARLTrainer(BaseTrainer):
             }, path + "_pool.pt")
 
     def load(self, path: str) -> None:
-        self.model = PPO.load(path)
+        device = get_sb3_device()
+        self.model = PPO.load(path, device=device)
         pool_path = path + "_pool.pt"
         if os.path.isfile(pool_path):
             import torch
