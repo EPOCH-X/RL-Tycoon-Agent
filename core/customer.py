@@ -1,6 +1,7 @@
-"""Customer entity – sits at a table, places an order, waits to be served.
+"""Customer entity – spawns at entrance, walks to table, orders, waits.
 
 State machine:
+  WALKING_TO_TABLE → (arrives at table)   → WAITING_TO_ORDER
   WAITING_TO_ORDER → (player takes order) → ORDER_TAKEN
   ORDER_TAKEN      → (all food served)    → EATING
   EATING           → (after eat_time)     → LEAVING_HAPPY
@@ -11,12 +12,14 @@ Supports:
   - Optional drink order (served separately for bonus income)
 """
 
+import math
 import random
 from core.entity import Entity
-from config.settings import COLORS, SATISFACTION_FAST_THRESHOLD
+from config.settings import COLORS, SATISFACTION_FAST_THRESHOLD, CUSTOMER_WALK_SPEED, TILE_SIZE
 
 
 class CustomerState:
+    WALKING_TO_TABLE = "walking_to_table"
     WAITING_TO_ORDER = "waiting_to_order"
     ORDER_TAKEN = "order_taken"
     EATING = "eating"
@@ -32,9 +35,14 @@ class Customer(Entity):
     def __init__(self, table_id: int, x: float, y: float,
                  customer_type: dict, menu_items: list[dict],
                  drink_item: dict | None = None,
-                 patience_bonus: float = 0.0):
+                 patience_bonus: float = 0.0,
+                 entrance_x: float | None = None,
+                 entrance_y: float | None = None):
         color_key = customer_type.get("color_key", "customer")
-        super().__init__(x, y,
+        # Start at entrance if given, otherwise at table directly
+        start_x = entrance_x if entrance_x is not None else x
+        start_y = entrance_y if entrance_y is not None else y
+        super().__init__(start_x, start_y,
                          color=COLORS.get(color_key, COLORS["customer"]),
                          sprite_key="customer")
         self.table_id = table_id
@@ -42,7 +50,17 @@ class Customer(Entity):
         self.menu_items: list[dict] = menu_items
         self.drink_item: dict | None = drink_item
 
-        self.state = CustomerState.WAITING_TO_ORDER
+        # Walking target (table pixel position)
+        self.target_x: float = float(x)
+        self.target_y: float = float(y)
+        self.walk_speed: float = CUSTOMER_WALK_SPEED
+
+        # Start walking if entrance provided, else seated immediately
+        if entrance_x is not None:
+            self.state = CustomerState.WALKING_TO_TABLE
+        else:
+            self.state = CustomerState.WAITING_TO_ORDER
+
         self.patience = float(customer_type["patience"]) + patience_bonus
         self.max_patience = self.patience
         self.eat_timer = EATING_TIME
@@ -81,6 +99,27 @@ class Customer(Entity):
     # ── update per tick ──────────────────────────
     def update(self, dt: float):
         if self.is_done:
+            return
+
+        # Walking to table (no patience loss during walk)
+        if self.state == CustomerState.WALKING_TO_TABLE:
+            dx = self.target_x - self.x
+            dy = self.target_y - self.y
+            dist = math.hypot(dx, dy)
+            arrive_dist = TILE_SIZE * 0.3
+            if dist <= arrive_dist:
+                self.x = self.target_x
+                self.y = self.target_y
+                self.state = CustomerState.WAITING_TO_ORDER
+            else:
+                step = self.walk_speed * dt
+                if step >= dist:
+                    self.x = self.target_x
+                    self.y = self.target_y
+                    self.state = CustomerState.WAITING_TO_ORDER
+                else:
+                    self.x += dx / dist * step
+                    self.y += dy / dist * step
             return
 
         if self.state == CustomerState.EATING:

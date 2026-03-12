@@ -100,6 +100,16 @@ class Shop:
             self.bar_counter_positions.add((bc["grid_x"], bc["grid_y"]))
         self.bar = BarStation(capacity=2)
 
+        # ── trash cans ───────────────────────────
+        self.trash_can_positions: set[tuple[int, int]] = set()
+        for tc in map_data.get("trash_cans", []):
+            self.trash_can_positions.add((tc["grid_x"], tc["grid_y"]))
+
+        # ── entrance (customer spawn point) ──────
+        entrance = map_data.get("entrance", map_data["player_start"])
+        self.entrance_x: float = entrance["grid_x"] * TILE_SIZE
+        self.entrance_y: float = entrance["grid_y"] * TILE_SIZE
+
         # ── player (pixel coords) ────────────────
         ps = map_data["player_start"]
         self.player = Player(
@@ -142,6 +152,7 @@ class Shop:
         # ── employee system ──────────────────────
         self.employees: list[Employee] = []
         self._next_emp_id: int = 1
+        self._employee_speed_bonus: float = 0.0
 
         # ── delivery system ──────────────────────
         self.delivery_unlocked: bool = False
@@ -235,6 +246,11 @@ class Shop:
         self.kitchen = Kitchen(capacity=KITCHEN_CAPACITY)
         self.bar = BarStation(capacity=2)
 
+        # ── trash cans (reset) ───────────────────
+        self.trash_can_positions = set()
+        for tc in self.map_data.get("trash_cans", []):
+            self.trash_can_positions.add((tc["grid_x"], tc["grid_y"]))
+
         ps = self.map_data["player_start"]
         self.player = Player(
             ps["grid_x"] * TILE_SIZE, ps["grid_y"] * TILE_SIZE)
@@ -276,6 +292,7 @@ class Shop:
         # Employees
         self.employees = []
         self._next_emp_id = 1
+        self._employee_speed_bonus = 0.0
 
         # Delivery
         self.delivery_unlocked = False
@@ -531,18 +548,42 @@ class Shop:
                 best_obj = bpos
                 best_dist = dist
 
+        # Check trash cans
+        for tpos in self.trash_can_positions:
+            tcx = tpos[0] * TILE_SIZE + TILE_SIZE / 2
+            tcy = tpos[1] * TILE_SIZE + TILE_SIZE / 2
+            dist = math.hypot(tcx - px, tcy - py)
+            if dist > INTERACT_RANGE:
+                continue
+            if dist > 1e-3:
+                dirx = (tcx - px) / dist
+                diry = (tcy - py) / dist
+                if dirx * fdx + diry * fdy < 0.1:
+                    continue
+            if dist < best_dist:
+                best_type = "trash"
+                best_obj = tpos
+                best_dist = dist
+
         if best_type is None:
             return 0.0
         if best_type == "table":
             return self._interact_table(best_obj)
         if best_type == "bar":
             return self._interact_bar()
+        if best_type == "trash":
+            return self._interact_trash()
         return self._interact_kitchen()
 
     def _interact_table(self, table: Table) -> float:
         cust = table.customer
         if cust is None:
             self._msg("빈 테이블입니다")
+            return 0.0
+
+        # Walking customer hasn't arrived yet
+        if cust.state == CustomerState.WALKING_TO_TABLE:
+            self._msg("손님이 이동 중입니다")
             return 0.0
 
         # ── Take order ───────────────────────────
@@ -652,6 +693,16 @@ class Shop:
             self._msg("손이 가득 찼습니다!")
         return 0.0
 
+    def _interact_trash(self) -> float:
+        """Interact with trash can to discard carried items."""
+        if not self.player.carrying:
+            self._msg("버릴 것이 없습니다")
+            return 0.0
+        count = len(self.player.carrying)
+        self.player.carrying.clear()
+        self._msg(f"{count}개 항목 폐기!")
+        return 0.5
+
     # ═══════════════════════════════════════════════
     #  Customer spawning
     # ═══════════════════════════════════════════════
@@ -691,7 +742,9 @@ class Shop:
             table.grid_y * TILE_SIZE,
             ctype, menu_items,
             drink_item=drink_item,
-            patience_bonus=self.patience_bonus)
+            patience_bonus=self.patience_bonus,
+            entrance_x=self.entrance_x,
+            entrance_y=self.entrance_y)
 
     def _pick_customer_type(self) -> dict:
         """Pick a customer type filtered by unlock_rating (satisfaction)."""
@@ -858,6 +911,12 @@ class Shop:
             self.delivery_unlocked = True
             self.delivery_timer = self.delivery_config.get("order_interval", 10)
             self._msg("배달 서비스 시작!")
+        elif etype == "employee_speed":
+            bonus = val * EMPLOYEE_SPEED
+            for emp in self.employees:
+                emp.speed += bonus
+            self._employee_speed_bonus = getattr(
+                self, '_employee_speed_bonus', 0.0) + bonus
 
     def _activate_next_table(self):
         if not self._purchasable_tables:
@@ -916,6 +975,8 @@ class Shop:
         x = ps["grid_x"] * TILE_SIZE
         y = ps["grid_y"] * TILE_SIZE
         emp = Employee(x, y, self._next_emp_id)
+        # Apply any existing employee speed upgrades
+        emp.speed += getattr(self, '_employee_speed_bonus', 0.0)
         self._next_emp_id += 1
         self.employees.append(emp)
         self._msg(f"종업원 #{emp.emp_id} 고용!")
@@ -938,13 +999,19 @@ class Shop:
             emp.update_color()
 
     def _assign_employee_task(self, emp: Employee):
-        # 1. If carrying food/drink → go serve at table
+        # 1. If carrying food/drink → go serve (or trash if customer left)
         if emp.carrying and emp.carrying["type"] in ("food", "drink"):
             tid = emp.carrying["table_id"]
             table = self._find_table(tid)
-            if table:
+            if table and table.customer:
                 emp.assign("serve", table.center_x, table.center_y, tid)
-                return
+            elif self.trash_can_positions:
+                tcx, tcy = self._trash_center()
+                emp.assign("discard_trash", tcx, tcy)
+            else:
+                emp.carrying = None
+                emp.finish_task()
+            return
 
         # 2. If carrying order → go to kitchen
         if emp.carrying and emp.carrying["type"] == "order":
@@ -952,27 +1019,57 @@ class Shop:
             emp.assign("submit_kitchen", kcx, kcy)
             return
 
-        # 3. Kitchen has ready food → pick up
+        # 3. Score-based task selection considering distance
+        candidates = []
+
+        # Kitchen has ready food → pickup
         if self.kitchen.has_ready:
-            kcx, kcy = self._kitchen_center()
-            emp.assign("pickup_food", kcx, kcy)
-            return
+            if not self._task_claimed_by_other(emp, "pickup_food"):
+                kcx, kcy = self._kitchen_center()
+                dist = math.hypot(emp.x - kcx, emp.y - kcy)
+                candidates.append(("pickup_food", kcx, kcy, None, 8.0 / (dist + 1)))
 
-        # 4. Bar has ready drink → pick up
+        # Bar has ready drink → pickup
         if self.bartender_hired and self.bar.has_ready:
-            bcx, bcy = self._bar_center()
-            emp.assign("pickup_drink", bcx, bcy)
-            return
+            if not self._task_claimed_by_other(emp, "pickup_drink"):
+                bcx, bcy = self._bar_center()
+                dist = math.hypot(emp.x - bcx, emp.y - bcy)
+                candidates.append(("pickup_drink", bcx, bcy, None, 7.0 / (dist + 1)))
 
-        # 5. Take order from waiting customer (unclaimed)
+        # Waiting customers → take order (urgency from patience)
         for table in self.tables:
             if (table.customer
                     and table.customer.state == CustomerState.WAITING_TO_ORDER
-                    and not table.customer.order_claimed):
-                table.customer.order_claimed = True
-                emp.assign("take_order", table.center_x, table.center_y,
-                           table.table_id)
-                return
+                    and not table.customer.order_claimed
+                    and not self._task_claimed_by_other(
+                        emp, "take_order", table.table_id)):
+                dist = math.hypot(emp.x - table.center_x,
+                                  emp.y - table.center_y)
+                urgency = 1.0 + (1.0 - table.customer.patience_ratio) * 5.0
+                candidates.append((
+                    "take_order", table.center_x, table.center_y,
+                    table.table_id, urgency * 5.0 / (dist + 1)))
+
+        if candidates:
+            candidates.sort(key=lambda c: c[4], reverse=True)
+            task, tx, ty, tid, _score = candidates[0]
+            if task == "take_order" and tid is not None:
+                table = self._find_table(tid)
+                if table and table.customer:
+                    table.customer.order_claimed = True
+            emp.assign(task, tx, ty, tid)
+
+    def _task_claimed_by_other(self, current_emp: Employee,
+                               task_type: str,
+                               table_id: int | None = None) -> bool:
+        """Check if another employee is already assigned this task."""
+        for other in self.employees:
+            if other.emp_id == current_emp.emp_id:
+                continue
+            if other.task == task_type:
+                if table_id is None or other.target_table_id == table_id:
+                    return True
+        return False
 
     def _complete_employee_task(self, emp: Employee):
         task = emp.task
@@ -1028,6 +1125,10 @@ class Shop:
                 emp.carrying = None
             emp.finish_task()
 
+        elif task == "discard_trash":
+            emp.carrying = None
+            emp.finish_task()
+
         else:
             emp.finish_task()
 
@@ -1048,6 +1149,12 @@ class Shop:
             bp = next(iter(self.bar_counter_positions))
             return bp[0] * TILE_SIZE + TILE_SIZE / 2, bp[1] * TILE_SIZE + TILE_SIZE / 2
         return TILE_SIZE * 8, TILE_SIZE * 8
+
+    def _trash_center(self) -> tuple[float, float]:
+        if self.trash_can_positions:
+            tp = next(iter(self.trash_can_positions))
+            return tp[0] * TILE_SIZE + TILE_SIZE / 2, tp[1] * TILE_SIZE + TILE_SIZE / 2
+        return TILE_SIZE * 13, TILE_SIZE * 1
 
     # ═══════════════════════════════════════════════
     #  Delivery System
@@ -1164,3 +1271,15 @@ class Shop:
     def _msg(self, text: str, duration: float = 1.5):
         self.message = text
         self.message_timer = duration
+
+    def get_game_result(self) -> dict:
+        """Return game result data for ranking system."""
+        return {
+            "money": self.money,
+            "net_profit": self.net_profit,
+            "day_limit": self.day_limit,
+            "customers_served": self.customers_served,
+            "customers_lost": self.customers_lost,
+            "shop_rating": round(self.shop_rating, 2),
+            "won": self.won,
+        }

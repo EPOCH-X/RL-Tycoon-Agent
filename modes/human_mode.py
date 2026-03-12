@@ -11,6 +11,7 @@ from config.settings import (
 )
 from modes.base_mode import BaseMode
 from core.shop import Shop
+from core.ranking import RankingManager
 from rendering.asset_manager import AssetManager
 from rendering.renderer import Renderer
 
@@ -25,7 +26,9 @@ class HumanMode(BaseMode):
 
         self.am = AssetManager()
         self.renderer = Renderer(self.am)
+        self.ranking = RankingManager()
         self._interact_pressed = False
+        self._result_recorded = False
 
     # ── events ───────────────────────────────────
     def handle_events(self):
@@ -70,6 +73,7 @@ class HumanMode(BaseMode):
                     self._interact_pressed = True
                 if event.key == pygame.K_r and self.shop.done:
                     self.shop.reset()
+                    self._result_recorded = False
 
     # ── per-frame smooth movement ────────────────
     def tick(self, dt):
@@ -102,5 +106,15 @@ class HumanMode(BaseMode):
         self.screen.fill(COLORS["background"])
         self.renderer.draw(self.screen, self.shop)
         if self.shop.done:
-            self.renderer.draw_game_over(self.screen, self.shop)
+            # Record ranking on first game-over frame
+            if not self._result_recorded:
+                result = self.shop.get_game_result()
+                self.ranking.record_result("Player", result)
+                self._result_recorded = True
+                rank = self.ranking.get_rank(
+                    self.shop.money, self.shop.day_limit)
+                self._rank_text = f"랭킹: #{rank}"
+            self.renderer.draw_game_over(
+                self.screen, self.shop,
+                extra_text=getattr(self, "_rank_text", ""))
         pygame.display.flip()

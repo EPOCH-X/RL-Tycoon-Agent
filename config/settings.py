@@ -25,7 +25,7 @@ STEP_INTERVAL = 0.2     # seconds per game step (5 steps/sec)
 # ──────────────────────────────────────────────
 # Game Rules – Restaurant Management Sim
 # ──────────────────────────────────────────────
-DEFAULT_TARGET_MONEY = 5000
+DEFAULT_TARGET_MONEY = 1500
 DEFAULT_DAY_LIMIT = 30          # in-game days
 DAY_LENGTH = 60.0               # real seconds per in-game day
 
@@ -42,9 +42,12 @@ INTERACT_RANGE = 80             # max pixel distance for interaction
 EMPLOYEE_SPEED = 120            # pixels per second (slower than player)
 EMPLOYEE_ACTION_DELAY = 0.8     # seconds to complete an action (take order, etc.)
 
+# Customer
+CUSTOMER_WALK_SPEED = 80        # pixels per second (walk to table)
+
 # Satisfaction
 SATISFACTION_HISTORY_LEN = 20   # rolling window for shop rating
-LOST_CUSTOMER_PENALTY = 30      # money penalty when customer leaves angry
+LOST_CUSTOMER_PENALTY = 10      # money penalty when customer leaves angry
 SATISFACTION_FAST_THRESHOLD = 0.6   # patience ratio above this → "fast"
 SATISFACTION_SLOW_THRESHOLD = 0.3   # below this → "slow"
 
@@ -87,6 +90,8 @@ COLORS = {
     "employee":         (80,  200, 160),
     "employee_carry":   (120, 240, 190),
     "delivery":         (200, 140, 60),
+    "trash_can":        (120, 100, 80),
+    "trash_can_active": (160, 140, 100),
     "text":             (255, 255, 255),
     "ui_bg":            (30,  30,  50),
     "money":            (255, 215, 0),

@@ -53,6 +53,7 @@ class Renderer:
         self._draw_purchasable_tables(surface, shop, offset_x, offset_y)
         self._draw_kitchen(surface, shop, offset_x, offset_y)
         self._draw_bar(surface, shop, offset_x, offset_y)
+        self._draw_trash_cans(surface, shop, offset_x, offset_y)
         self._draw_customers(surface, shop, offset_x, offset_y)
         self._draw_employees(surface, shop, offset_x, offset_y)
         shop.player.render(surface, self.am, offset_x, offset_y)
@@ -73,6 +74,8 @@ class Renderer:
                     color = COLORS["floor"]
                 elif tile == 4:
                     color = COLORS.get("bar", (100, 60, 140))
+                elif tile == 5:
+                    color = COLORS.get("trash_can", (120, 100, 80))
                 else:
                     color = COLORS["wall"]
                 pygame.draw.rect(surface, color, rect)
@@ -159,6 +162,20 @@ class Renderer:
                                  (bbx, by + 2, int(bw * ratio), 8))
 
     # ═══════════════════════════════════════════════
+    #  Trash cans
+    # ═══════════════════════════════════════════════
+    def _draw_trash_cans(self, surface, shop, ox, oy):
+        for pos in shop.trash_can_positions:
+            rect = pygame.Rect(pos[0] * TILE_SIZE + ox,
+                               pos[1] * TILE_SIZE + oy,
+                               TILE_SIZE, TILE_SIZE)
+            col = COLORS.get("trash_can", (120, 100, 80))
+            pygame.draw.rect(surface, col, rect)
+            pygame.draw.rect(surface, COLORS["grid_line"], rect, 1)
+            lbl = self.font_sm.render("🗑", True, COLORS["text"])
+            surface.blit(lbl, lbl.get_rect(center=rect.center))
+
+    # ═══════════════════════════════════════════════
     #  Customers (drawn on their table position)
     # ═══════════════════════════════════════════════
     def _draw_customers(self, surface, shop, ox, oy):
@@ -176,7 +193,9 @@ class Renderer:
             pygame.draw.rect(surface, cust.color, body)
             pygame.draw.rect(surface, (0, 0, 0), body, 1)
 
-            if cust.state == CustomerState.WAITING_TO_ORDER:
+            if cust.state == CustomerState.WALKING_TO_TABLE:
+                icon = self.font_sm.render("🚶", True, (200, 200, 200))
+            elif cust.state == CustomerState.WAITING_TO_ORDER:
                 icon = self.font_sm.render("?!", True, (255, 255, 255))
             elif cust.state == CustomerState.ORDER_TAKEN:
                 remaining = cust.group_size - cust.food_served_count
@@ -199,7 +218,8 @@ class Renderer:
                 surface.blit(di, (cx + TILE_SIZE - 14, cy + 2))
 
             if cust.state in (CustomerState.WAITING_TO_ORDER,
-                              CustomerState.ORDER_TAKEN):
+                              CustomerState.ORDER_TAKEN,
+                              CustomerState.WALKING_TO_TABLE):
                 bw = TILE_SIZE - 8
                 bh = 4
                 bx = cx + 4

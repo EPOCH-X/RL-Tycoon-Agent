@@ -2,65 +2,65 @@
   {
     "id": "coffee",
     "name": "커피",
-    "cook_time": 3.0,
-    "price": 15,
+    "cook_time": 2.0,
+    "price": 8,
     "unlock_profit": 0,
     "unlock_cost": 0
   },
   {
     "id": "sandwich",
     "name": "샌드위치",
-    "cook_time": 5.0,
-    "price": 25,
+    "cook_time": 3.0,
+    "price": 12,
     "unlock_profit": 0,
     "unlock_cost": 0
   },
   {
     "id": "pasta",
     "name": "파스타",
-    "cook_time": 8.0,
-    "price": 45,
-    "unlock_profit": 500,
-    "unlock_cost": 100
+    "cook_time": 4.0,
+    "price": 18,
+    "unlock_profit": 0,
+    "unlock_cost": 0
   },
   {
     "id": "steak",
     "name": "스테이크",
-    "cook_time": 12.0,
-    "price": 80,
-    "unlock_profit": 1500,
-    "unlock_cost": 200
+    "cook_time": 5.0,
+    "price": 28,
+    "unlock_profit": 200,
+    "unlock_cost": 50
   },
   {
     "id": "sushi_set",
     "name": "초밥 세트",
-    "cook_time": 15.0,
-    "price": 120,
-    "unlock_profit": 3000,
-    "unlock_cost": 400
+    "cook_time": 6.0,
+    "price": 40,
+    "unlock_profit": 500,
+    "unlock_cost": 100
   },
   {
     "id": "lobster",
     "name": "랍스터",
-    "cook_time": 18.0,
-    "price": 180,
-    "unlock_profit": 6000,
-    "unlock_cost": 600
+    "cook_time": 7.0,
+    "price": 55,
+    "unlock_profit": 1000,
+    "unlock_cost": 150
   },
   {
     "id": "wagyu",
     "name": "와규 스테이크",
-    "cook_time": 22.0,
-    "price": 260,
-    "unlock_profit": 10000,
-    "unlock_cost": 1000
+    "cook_time": 8.0,
+    "price": 75,
+    "unlock_profit": 2000,
+    "unlock_cost": 250
   },
   {
     "id": "truffle_course",
     "name": "트러플 코스",
-    "cook_time": 28.0,
-    "price": 400,
-    "unlock_profit": 15000,
-    "unlock_cost": 1500
+    "cook_time": 10.0,
+    "price": 100,
+    "unlock_profit": 3500,
+    "unlock_cost": 400
   }
 ]
