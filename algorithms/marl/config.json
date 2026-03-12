@@ -1,0 +1,58 @@
+{
+  "_comment": "MARL (Multi-Agent RL) + Self-play 설정. 경쟁형 경영 게임에서 자기 대결 학습.",
+  "algorithm": "MARL",
+  "policy": "MlpPolicy",
+
+  "training": {
+    "total_timesteps": 200000,
+    "n_envs": 2,
+    "seed": 42,
+    "eval_freq": 5000,
+    "self_play_update_freq": 10000,
+    "opponent_pool_size": 5,
+    "elo_initial": 1000,
+    "elo_k": 32
+  },
+
+  "hyperparameters": {
+    "learning_rate": 3e-4,
+    "n_steps": 2048,
+    "batch_size": 64,
+    "n_epochs": 10,
+    "gamma": 0.99,
+    "gae_lambda": 0.95,
+    "clip_range": 0.2,
+    "ent_coef": 0.01,
+    "vf_coef": 0.5,
+    "max_grad_norm": 0.5
+  },
+
+  "network": {
+    "net_arch": [128, 128],
+    "activation_fn": "tanh"
+  },
+
+  "reward_shaping": {
+    "_comment": "MARL에서는 상대적 성과도 보상에 반영됩니다.",
+    "take_order": 2.0,
+    "serve_food": 5.0,
+    "submit_kitchen": 1.0,
+    "pickup_food": 1.0,
+    "pickup_drink": 1.0,
+    "serve_drink": 3.0,
+    "customer_payment": 1.0,
+    "lost_customer": -30.0,
+    "wrong_table": -2.0,
+    "buy_upgrade": 3.0,
+    "no_upgrade": -0.1,
+    "win": 200.0,
+    "trash": 0.5,
+    "relative_money_bonus": 0.5,
+    "relative_rating_bonus": 1.0
+  },
+
+  "game_overrides": {
+    "target_money": null,
+    "day_limit": null
+  }
+}
