@@ -89,7 +89,7 @@
 | `cooking`        | 조리 중     | 현재 조리되고 있는 요리 리스트        |
 | `ready`          | 완성 (대기) | 조리 완료, 서버가 수거하길 대기       |
 | `delivery_ready` | 배달 완성   | 배달 주문 조리 완료, 배달 타이머 시작 |
-| `capacity`       | 용량        | 동시 조리 가능한 최대 수              |
+| `capacity`       | 용량        | 요리사 수 (동시 조리 가능한 최대 수)  |
 | `can_accept`     | 접수 가능   | 조리 중 < 용량이면 True               |
 
 ### BarStation 상태 (음료 큐)
@@ -149,7 +149,6 @@
 | `tip_range`     | [int, int] | 팁 범위     | [최소, 최대] 범위에서 랜덤             |
 | `spawn_weight`  | int        | 등장 가중치 | 다른 유형 대비 등장 확률 비중          |
 | `color_key`     | string     | 색상 키     | settings.py COLORS 딕셔너리의 키       |
-| `group_size`    | [int, int] | 그룹 크기   | [최소, 최대] 인원수 (가족은 2~4)       |
 | `unlock_rating` | float      | 해금 평점   | 매장 평점이 이 값 이상이어야 등장      |
 
 ### upgrades.json 필드
@@ -178,16 +177,18 @@
 
 ### effect_type (업그레이드 효과 타입)
 
-| 값                   | 한글          | 효과                                |
-| -------------------- | ------------- | ----------------------------------- |
-| `"player_speed"`     | 이동속도      | 플레이어 속도 +effect_value%        |
-| `"kitchen_capacity"` | 주방 용량     | 동시 조리 수 +effect_value          |
-| `"buy_table"`        | 테이블 구매   | 새 테이블 1개 활성화                |
-| `"wealthy_bonus"`    | 부유 보너스   | 부유한 손님 등장 확률 +effect_value |
-| `"hire_waiter"`      | 종업원 고용   | AI 종업원 1명 추가                  |
-| `"hire_bartender"`   | 바텐더 고용   | 음료 서비스 활성화                  |
-| `"hire_delivery"`    | 배달기사 고용 | 배달 서비스 활성화                  |
-| `"employee_speed"`   | 직원 속도     | 모든 직원 이동속도 +effect_value%   |
+| 값                 | 한글          | 효과                                |
+| ------------------ | ------------- | ----------------------------------- |
+| `"player_speed"`   | 이동속도      | 플레이어 속도 +effect_value%        |
+| `"kitchen_expand"` | 주방 확장     | 주방 칸 +1 (요리사 고용 한도↑)      |
+| `"hire_chef"`      | 요리사 고용   | 요리사 +1 (주방 칸 필요)            |
+| `"cook_speed"`     | 조리 속도     | 조리 시간 단축 +effect_value%       |
+| `"buy_table"`      | 테이블 구매   | 새 테이블 1개 활성화                |
+| `"wealthy_bonus"`  | 부유 보너스   | 부유한 손님 등장 확률 +effect_value |
+| `"hire_waiter"`    | 종업원 고용   | AI 종업원 1명 추가                  |
+| `"hire_bartender"` | 바텐더 고용   | 음료 서비스 활성화                  |
+| `"hire_delivery"`  | 배달기사 고용 | 배달 서비스 활성화                  |
+| `"employee_speed"` | 직원 속도     | 모든 직원 이동속도 +effect_value%   |
 
 ### beverages.json 필드
 
@@ -283,7 +284,6 @@
 | `"customer_angry"`    | (220, 80, 50)   | 화난 손님          | 빨간-주황      |
 | `"customer_wealthy"`  | (180, 120, 220) | 부유한 손님        | 보라           |
 | `"customer_vip"`      | (255, 215, 0)   | VIP 손님           | 금색           |
-| `"customer_family"`   | (180, 200, 100) | 가족 손님          | 연두           |
 | `"customer_tourist"`  | (100, 180, 220) | 관광객 손님        | 하늘색         |
 | `"customer_critic"`   | (220, 50, 50)   | 평론가 손님        | 진한 빨강      |
 | `"table"`             | (139, 90, 43)   | 빈 테이블          | 나무색         |
@@ -415,20 +415,20 @@
 
 `renderer.py`의 `draw()` 메서드가 아래 순서로 그립니다 (뒤에 그린 것이 위에 표시):
 
-| 순서 | 메서드                     | 그리는 것                                           |
-| ---- | -------------------------- | --------------------------------------------------- |
-| 1    | `_draw_map`                | 바닥·벽 타일 (배경)                                 |
-| 2    | `_draw_tables`             | 활성 테이블 (나무색/점유색)                         |
-| 3    | `_draw_purchasable_tables` | 구매 가능 테이블 (고스트)                           |
-| 4    | `_draw_kitchen`            | 주방 카운터 + 조리 진행 바 + 레시피 이름            |
-| 5    | `_draw_bar`                | 바 카운터 + 제조 상태                               |
-| 6    | `_draw_trash_cans`         | 쓰레기통 (🗑 아이콘)                                |
-| 7    | `_draw_customers`          | 손님 (상태 아이콘, 그룹 뱃지, 음료 표시, 인내심 바) |
-| 8    | `_draw_employees`          | 종업원 (원형 + ID 번호)                             |
-| 9    | player.render              | 플레이어 (사각형 + 방향 삼각형 + 운반 표시)         |
-| 10   | `_draw_ui`                 | 하단 UI (돈, 일수, 타이머, 평점, 운반 상태, 통계)   |
-| 11   | `_draw_upgrade_panel`      | (열려 있을 때) 업그레이드 메뉴 오버레이             |
-| 12   | `_draw_trait_popup`        | (활성화 시) 특성 선택 팝업                          |
+| 순서 | 메서드                     | 그리는 것                                         |
+| ---- | -------------------------- | ------------------------------------------------- |
+| 1    | `_draw_map`                | 바닥·벽 타일 (배경)                               |
+| 2    | `_draw_tables`             | 활성 테이블 (나무색/점유색)                       |
+| 3    | `_draw_purchasable_tables` | 구매 가능 테이블 (고스트)                         |
+| 4    | `_draw_kitchen`            | 주방 카운터 + 조리 진행 바 + 레시피 이름          |
+| 5    | `_draw_bar`                | 바 카운터 + 제조 상태                             |
+| 6    | `_draw_trash_cans`         | 쓰레기통 (🗑 아이콘)                              |
+| 7    | `_draw_customers`          | 손님 (상태 아이콘, 음료 표시, 인내심 바)          |
+| 8    | `_draw_employees`          | 종업원 (원형 + ID 번호)                           |
+| 9    | player.render              | 플레이어 (사각형 + 방향 삼각형 + 운반 표시)       |
+| 10   | `_draw_ui`                 | 하단 UI (돈, 일수, 타이머, 평점, 운반 상태, 통계) |
+| 11   | `_draw_upgrade_panel`      | (열려 있을 때) 업그레이드 메뉴 오버레이           |
+| 12   | `_draw_trait_popup`        | (활성화 시) 특성 선택 팝업                        |
 
 ---
 
@@ -461,7 +461,7 @@
 
 - **tick(dt)**: 매 프레임 실행. 부드러운 연속 이동만 처리
 - **update()**: 0.2초마다 실행. 게임 로직 (주문, 조리, 만족도 등) 처리
-- RL 에이전트는 `shop.step(action)` 호출 → 내부적으로 이동+로직 한방에 처리
+- RL 에이전트는 `shop.step(action)` 호출 → 이벤트 리스트 반환 → `RewardCalculator`가 보상 계산
 
 ---
 
@@ -502,34 +502,61 @@ RL 관련 코드·설정에서 사용되는 영어 용어:
 
 ## 11. 보상(Reward) 함수 상세
 
-`shop.step(action)` 반환값인 reward의 구성:
-
-### 양의 보상 (Positive Rewards)
-
-| 이벤트          | 보상값   | 발생 조건                         |
-| --------------- | -------- | --------------------------------- |
-| 손님 결제       | +payment | 식사 완료 → 결제 (음식+팁+음료)   |
-| 배달 완료       | +payment | 배달 타이머 만료 (가격×0.85 + 팁) |
-| 업그레이드 구매 | +3.0     | action=6일 때 구매 성공           |
-| 목표 달성       | +200.0   | money ≥ target_money              |
-
-### 음의 보상 (Negative Rewards)
-
-| 이벤트          | 보상값 | 발생 조건                           |
-| --------------- | ------ | ----------------------------------- |
-| 손님 이탈       | -30.0  | 인내심 0 → 화남 퇴장                |
-| 업그레이드 실패 | -0.1   | action=6인데 돈 부족 또는 이미 최대 |
-
-### 보상 흐름 예시
+`shop.step(action)` 반환값은 **이벤트 리스트** `list[tuple[str, float]]` 입니다.
+`ai/reward.py`의 `RewardCalculator`가 `config/train_config.json`의 `reward_shaping` 가중치를
+적용하여 스칼라 보상을 계산합니다.
 
 ```
-1. 에이전트 action=4 (INTERACT) → 테이블 앞에서 주문 받기 → reward = 0
-2. 에이전트 action=4 → 주방에 전달 → reward = 0
-3. (조리 대기 중... action=5 반복)
-4. 에이전트 action=4 → 음식 수거 → reward = 0
-5. 에이전트 action=4 → 서빙 → 손님 식사 시작
-6. (식사 3초 후) 손님 결제 → reward = +$45 (파스타)
-7. 만약 중간에 다른 손님 화남 → reward -= $30
+Shop.step(action) → [("take_order", 1.0), ("customer_payment", 45.0), ...]
+                              ↓
+              RewardCalculator(reward_config)
+                              ↓
+              reward = Σ(weight[event] × value)
+```
+
+### 이벤트 목록
+
+| 이벤트 이름        | value 의미        | 기본 가중치 | 발생 조건                            |
+| ------------------ | ----------------- | ----------- | ------------------------------------ |
+| `take_order`       | 1.0 (횟수)        | +2.0        | 테이블에서 주문 접수                 |
+| `serve_food`       | 1.0               | +5.0        | 음식 서빙 완료                       |
+| `submit_kitchen`   | 전달된 수 (float) | +1.0        | 주방에 주문 전달                     |
+| `pickup_food`      | 1.0               | +1.0        | 주방에서 음식 수거                   |
+| `pickup_drink`     | 1.0               | +1.0        | 바에서 음료 수거                     |
+| `serve_drink`      | 1.0               | +3.0        | 음료 서빙 완료                       |
+| `customer_payment` | 결제 금액 (float) | +1.0        | 손님 식사 완료 → 결제 (음식+팁+음료) |
+| `wrong_table`      | 1.0               | -2.0        | 다른 테이블 음식 서빙 시도           |
+| `lost_customer`    | 1.0               | -30.0       | 손님 인내심 소진 → 화남 퇴장         |
+| `buy_upgrade`      | 1.0               | +3.0        | 업그레이드/메뉴 구매 성공            |
+| `no_upgrade`       | 1.0               | -0.1        | 구매 불가 (돈 부족 / 이미 최대)      |
+| `win`              | 1.0               | +200.0      | money ≥ target_money                 |
+| `trash`            | 1.0               | +0.5        | 쓰레기통으로 아이템 폐기             |
+
+### 보상 계산 예시
+
+```python
+# train_config.json의 reward_shaping 설정:
+# "customer_payment": 1.0, "serve_food": 5.0, "lost_customer": -30.0
+
+events = [("serve_food", 1.0), ("customer_payment", 45.0)]
+reward = 5.0 * 1.0 + 1.0 * 45.0  # = 50.0
+
+events = [("lost_customer", 1.0)]
+reward = -30.0 * 1.0  # = -30.0
+```
+
+### 보상 커스터마이징
+
+`config/train_config.json`의 `reward_shaping` 섹션을 수정하면 **게임 코드 수정 없이**
+보상 가중치를 실험할 수 있습니다.
+
+```json
+// 예: 서빙 중시 + 이탈 방지 강화
+{
+  "serve_food": 10.0,
+  "lost_customer": -50.0,
+  "customer_payment": 0.5
+}
 ```
 
 ---
@@ -581,29 +608,29 @@ RL 관련 코드·설정에서 사용되는 영어 용어:
 
 ## 13. config/train_config.json 필드 상세
 
-| 경로                            | 타입      | 기본값        | 설명                          |
-| ------------------------------- | --------- | ------------- | ----------------------------- |
-| `algorithm`                     | string    | `"PPO"`       | RL 알고리즘 (현재 PPO만 지원) |
-| `policy`                        | string    | `"MlpPolicy"` | SB3 정책 클래스               |
-| `training.total_timesteps`      | int       | 200000        | 총 학습 스텝                  |
-| `training.n_envs`               | int       | 4             | 병렬 환경 수                  |
-| `training.seed`                 | int       | 42            | 랜덤 시드                     |
-| `training.eval_freq`            | int       | 5000          | 평가 주기                     |
-| `hyperparameters.learning_rate` | float     | 3e-4          | 학습률                        |
-| `hyperparameters.n_steps`       | int       | 2048          | 롤아웃 길이                   |
-| `hyperparameters.batch_size`    | int       | 64            | 미니배치                      |
-| `hyperparameters.n_epochs`      | int       | 10            | 에폭 수                       |
-| `hyperparameters.gamma`         | float     | 0.99          | 할인율                        |
-| `hyperparameters.gae_lambda`    | float     | 0.95          | GAE 람다                      |
-| `hyperparameters.clip_range`    | float     | 0.2           | PPO 클립                      |
-| `hyperparameters.ent_coef`      | float     | 0.01          | 엔트로피 계수                 |
-| `hyperparameters.vf_coef`       | float     | 0.5           | 가치함수 계수                 |
-| `hyperparameters.max_grad_norm` | float     | 0.5           | 그래디언트 클립               |
-| `network.net_arch`              | int[]     | [128, 128]    | 히든 레이어                   |
-| `network.activation_fn`         | string    | `"tanh"`      | 활성화 함수                   |
-| `reward_shaping.*`              | float     | 위 참조       | 보상 가중치                   |
-| `game_overrides.target_money`   | int\|null | null          | 목표 금액 오버라이드          |
-| `game_overrides.day_limit`      | int\|null | null          | 일수 제한 오버라이드          |
+| 경로                            | 타입      | 기본값        | 설명                            |
+| ------------------------------- | --------- | ------------- | ------------------------------- |
+| `algorithm`                     | string    | `"PPO"`       | RL 알고리즘 (현재 PPO만 지원)   |
+| `policy`                        | string    | `"MlpPolicy"` | SB3 정책 클래스                 |
+| `training.total_timesteps`      | int       | 200000        | 총 학습 스텝                    |
+| `training.n_envs`               | int       | 4             | 병렬 환경 수                    |
+| `training.seed`                 | int       | 42            | 랜덤 시드                       |
+| `training.eval_freq`            | int       | 5000          | 평가 주기                       |
+| `hyperparameters.learning_rate` | float     | 3e-4          | 학습률                          |
+| `hyperparameters.n_steps`       | int       | 2048          | 롤아웃 길이                     |
+| `hyperparameters.batch_size`    | int       | 64            | 미니배치                        |
+| `hyperparameters.n_epochs`      | int       | 10            | 에폭 수                         |
+| `hyperparameters.gamma`         | float     | 0.99          | 할인율                          |
+| `hyperparameters.gae_lambda`    | float     | 0.95          | GAE 람다                        |
+| `hyperparameters.clip_range`    | float     | 0.2           | PPO 클립                        |
+| `hyperparameters.ent_coef`      | float     | 0.01          | 엔트로피 계수                   |
+| `hyperparameters.vf_coef`       | float     | 0.5           | 가치함수 계수                   |
+| `hyperparameters.max_grad_norm` | float     | 0.5           | 그래디언트 클립                 |
+| `network.net_arch`              | int[]     | [128, 128]    | 히든 레이어                     |
+| `network.activation_fn`         | string    | `"tanh"`      | 활성화 함수                     |
+| `reward_shaping.*`              | float     | 위 참조       | 이벤트별 보상 가중치 (§11 참조) |
+| `game_overrides.target_money`   | int\|null | null          | 목표 금액 오버라이드            |
+| `game_overrides.day_limit`      | int\|null | null          | 일수 제한 오버라이드            |
 
 ### CLI 오버라이드
 
@@ -624,11 +651,11 @@ python -m ai.train --config other.json # 다른 설정 파일 사용
 
 ### 핵심 루프
 
-| 메서드                               | 한글      | 설명                                     |
-| ------------------------------------ | --------- | ---------------------------------------- |
-| `step(action)`                       | 풀 스텝   | RL용: 이동+로직 한번에 실행, reward 반환 |
-| `step_logic(action)`                 | 로직만    | 인간 모드용: 이동 없이 게임 로직만 실행  |
-| `move_player_continuous(dx, dy, dt)` | 연속 이동 | 인간 모드용: 부드러운 픽셀 이동          |
+| 메서드                               | 한글      | 설명                                       |
+| ------------------------------------ | --------- | ------------------------------------------ |
+| `step(action)`                       | 풀 스텝   | RL용: 이동+로직 실행, 이벤트 리스트 반환   |
+| `step_logic(action)`                 | 로직만    | 인간 모드용: 이동 없이 로직만, 이벤트 반환 |
+| `move_player_continuous(dx, dy, dt)` | 연속 이동 | 인간 모드용: 부드러운 픽셀 이동            |
 
 ### 상호작용
 
@@ -678,8 +705,8 @@ python -m ai.train --config other.json # 다른 설정 파일 사용
 | `requirements.txt`           | 의존성 목록 (pygame, gymnasium, numpy, torch, stable-baselines3)             |
 | `config/settings.py`         | 전역 상수 (타일크기, FPS, 색상, 액션코드, 게임규칙) + JSON 로더              |
 | `config/menu.json`           | 메뉴 8종 정의 (id, 조리시간, 가격, 해금조건)                                 |
-| `config/customers.json`      | 손님 7종 정의 (id, 인내심, 재산배율, 팁, 그룹, 해금평점)                     |
-| `config/upgrades.json`       | 업그레이드 8종 정의 (id, 카테고리, 비용, 효과, 최대레벨)                     |
+| `config/customers.json`      | 손님 6종 정의 (id, 인내심, 재산배율, 팁, 해금평점)                           |
+| `config/upgrades.json`       | 업그레이드 10종 정의 (id, 카테고리, 비용, 효과, 최대레벨)                    |
 | `config/beverages.json`      | 음료 5종 정의 (id, 제조시간, 가격, 해금조건)                                 |
 | `config/traits.json`         | 특성 8종 정의 (id, 효과, 수치, 최대중첩) + 제안주기                          |
 | `config/delivery.json`       | 배달 설정 (주기, 시간, 가격배율, 팁범위)                                     |
@@ -687,7 +714,7 @@ python -m ai.train --config other.json # 다른 설정 파일 사용
 | `config/train_config.json`   | RL 학습 설정 (하이퍼파라미터, 네트워크, 보상가중치, 게임오버라이드)          |
 | `core/entity.py`             | Entity 기본 클래스 (픽셀좌표, 그리드좌표, 스프라이트 지원)                   |
 | `core/player.py`             | Player (이동, 방향, 리스트기반 운반, carry_capacity)                         |
-| `core/customer.py`           | Customer (6단계 상태머신: 이동→대기→주문→식사→퇴장, 그룹, 음료, 결제 계산)   |
+| `core/customer.py`           | Customer (6단계 상태머신: 이동→대기→주문→식사→퇴장, 음료, 결제 계산)         |
 | `core/station.py`            | Table (점유) + Kitchen (조리큐+배달큐) + BarStation (음료큐)                 |
 | `core/employee.py`           | Employee (AI NPC, IDLE→MOVING→ACTING, 우선순위 기반 작업)                    |
 | `core/shop.py`               | Shop (레스토랑 전체 엔진, step(), 모든 시스템 통합, 랭킹 연동)               |
@@ -697,6 +724,7 @@ python -m ai.train --config other.json # 다른 설정 파일 사용
 | `modes/base_mode.py`         | BaseMode (Pygame 루프 템플릿, 고정 타임스텝, 이벤트 처리)                    |
 | `modes/human_mode.py`        | HumanMode (키보드 입력, 연속이동, 업그레이드 UI, 특성 선택)                  |
 | `modes/versus_mode.py`       | VersusMode (분할화면, 인간 vs AI, 시간동기화, 독립 Shop)                     |
-| `ai/gym_env.py`              | TycoonEnv (Gymnasium 래퍼, obs 49차원, act 7개, reward 반환)                 |
+| `ai/gym_env.py`              | TycoonEnv (Gymnasium 래퍼, obs 49차원, act 7개, 이벤트→보상 변환)            |
 | `ai/agent.py`                | RandomAgent + TrainedAgent (모델 로딩, 추론 인터페이스)                      |
+| `ai/reward.py`               | RewardCalculator (train_config.json 기반 이벤트→보상 변환)                   |
 | `ai/train.py`                | PPO 학습 (train_config.json 기반, 병렬환경, 평가콜백, TensorBoard)           |

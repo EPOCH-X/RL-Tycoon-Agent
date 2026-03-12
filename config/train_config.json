@@ -30,17 +30,20 @@
   },
 
   "reward_shaping": {
-    "_comment": "보상 가중치. 각 이벤트별 보상값을 조정하세요.",
-    "serve_food": 5.0,
+    "_comment": "보상 가중치. reward = weight × event_value. 팀원별로 자유롭게 조정하세요.",
     "take_order": 2.0,
+    "serve_food": 5.0,
     "submit_kitchen": 1.0,
     "pickup_food": 1.0,
+    "pickup_drink": 1.0,
     "serve_drink": 3.0,
+    "customer_payment": 1.0,
+    "lost_customer": -30.0,
+    "wrong_table": -2.0,
     "buy_upgrade": 3.0,
-    "lost_customer_penalty": 30.0,
-    "wrong_table_penalty": 2.0,
-    "no_upgrade_penalty": 0.1,
-    "win_bonus": 200.0
+    "no_upgrade": -0.1,
+    "win": 200.0,
+    "trash": 0.5
   },
 
   "game_overrides": {

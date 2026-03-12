@@ -59,13 +59,13 @@ class Player(Entity):
     def can_carry_more(self) -> bool:
         return len(self.carrying) < self.carry_capacity
 
-    def pick_up_order(self, table_id: int, items: list[dict],
+    def pick_up_order(self, table_id: int, menu_item: dict,
                       drink_item: dict | None = None):
-        """Pick up an order slip (may contain multiple items for a family)."""
+        """Pick up an order slip (single menu item)."""
         order = {
             "type": "order",
             "table_id": table_id,
-            "items": items,
+            "item": menu_item,
         }
         if drink_item:
             order["drink_item"] = drink_item

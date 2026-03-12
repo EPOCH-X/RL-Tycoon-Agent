@@ -7,7 +7,6 @@
     "tip_range": [0, 1],
     "spawn_weight": 5,
     "color_key": "customer",
-    "group_size": [1, 1],
     "unlock_rating": 0.0
   },
   {
@@ -18,19 +17,7 @@
     "tip_range": [1, 3],
     "spawn_weight": 4,
     "color_key": "customer",
-    "group_size": [1, 1],
     "unlock_rating": 0.0
-  },
-  {
-    "id": "family",
-    "name": "가족",
-    "patience": 75.0,
-    "wealth_mult": 1.2,
-    "tip_range": [2, 6],
-    "spawn_weight": 2,
-    "color_key": "customer_family",
-    "group_size": [2, 4],
-    "unlock_rating": 0.3
   },
   {
     "id": "tourist",
@@ -40,7 +27,6 @@
     "tip_range": [3, 8],
     "spawn_weight": 2,
     "color_key": "customer_tourist",
-    "group_size": [1, 2],
     "unlock_rating": 0.4
   },
   {
@@ -51,7 +37,6 @@
     "tip_range": [4, 12],
     "spawn_weight": 2,
     "color_key": "customer_wealthy",
-    "group_size": [1, 1],
     "unlock_rating": 0.5
   },
   {
@@ -62,7 +47,6 @@
     "tip_range": [8, 25],
     "spawn_weight": 1,
     "color_key": "customer_vip",
-    "group_size": [1, 1],
     "unlock_rating": 0.7
   },
   {
@@ -73,7 +57,6 @@
     "tip_range": [10, 35],
     "spawn_weight": 1,
     "color_key": "customer_critic",
-    "group_size": [1, 1],
     "unlock_rating": 0.8
   }
 ]

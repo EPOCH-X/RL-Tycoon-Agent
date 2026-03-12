@@ -31,7 +31,7 @@ DAY_LENGTH = 60.0               # real seconds per in-game day
 
 CUSTOMER_SPAWN_INTERVAL = 8.0   # base seconds between spawns
 MAX_CUSTOMERS = 4               # max simultaneous seated customers
-KITCHEN_CAPACITY = 3            # max dishes cooking at once
+KITCHEN_CAPACITY = 1            # initial number of chefs (1 chef = 1 dish at a time)
 
 # Player movement (distance-based, not grid)
 PLAYER_SPEED = 180              # pixels per second
@@ -77,7 +77,6 @@ COLORS = {
     "customer_angry":   (220, 80,  50),
     "customer_wealthy": (180, 120, 220),
     "customer_vip":     (255, 215, 0),
-    "customer_family":  (180, 200, 100),
     "customer_tourist": (100, 180, 220),
     "customer_critic":  (220, 50,  50),
     "table":            (139, 90,  43),

@@ -29,7 +29,8 @@ def load_train_config(config_path: str | None = None) -> dict:
     return load_json_config("train_config.json")
 
 
-def _make_env(rank: int = 0, seed: int = 0, game_overrides: dict | None = None):
+def _make_env(rank: int = 0, seed: int = 0, game_overrides: dict | None = None,
+              reward_config: dict | None = None):
     def _init():
         kwargs = {}
         if game_overrides:
@@ -37,7 +38,7 @@ def _make_env(rank: int = 0, seed: int = 0, game_overrides: dict | None = None):
                 kwargs["target_money"] = game_overrides["target_money"]
             if game_overrides.get("day_limit") is not None:
                 kwargs["day_limit"] = game_overrides["day_limit"]
-        env = TycoonEnv(**kwargs)
+        env = TycoonEnv(reward_config=reward_config, **kwargs)
         env.reset(seed=seed + rank)
         return env
     return _init
@@ -49,6 +50,7 @@ def train(args):
     hp = cfg.get("hyperparameters", {})
     net_cfg = cfg.get("network", {})
     game_ov = cfg.get("game_overrides", {})
+    reward_cfg = cfg.get("reward_shaping", {})
 
     # CLI overrides take priority
     timesteps = args.timesteps or t_cfg.get("total_timesteps", 200_000)
@@ -66,11 +68,11 @@ def train(args):
     # Vectorised training environments
     if n_envs > 1:
         train_env = SubprocVecEnv(
-            [_make_env(i, seed, game_ov) for i in range(n_envs)])
+            [_make_env(i, seed, game_ov, reward_cfg) for i in range(n_envs)])
     else:
-        train_env = DummyVecEnv([_make_env(0, seed, game_ov)])
+        train_env = DummyVecEnv([_make_env(0, seed, game_ov, reward_cfg)])
 
-    eval_env = DummyVecEnv([_make_env(0, seed + 1000, game_ov)])
+    eval_env = DummyVecEnv([_make_env(0, seed + 1000, game_ov, reward_cfg)])
 
     # Build policy kwargs from network config
     policy_kwargs = {}

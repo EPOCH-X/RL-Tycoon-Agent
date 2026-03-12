@@ -11,19 +11,18 @@ from gymnasium import spaces
 
 from config.settings import (
     TILE_SIZE, UI_HEIGHT, COLORS, ASSETS_DIR, NUM_ACTIONS,
+    load_json_config,
 )
 from core.shop import Shop
 from core.customer import CustomerState
+from ai.reward import RewardCalculator
 
 # ────────────────────────────────────────────────
 # Observation encoding helpers
 # ────────────────────────────────────────────────
-# Menu-item id mapping (must stay in sync with config/menu.json)
-MENU_IDS = {
-    "coffee": 1, "sandwich": 2, "pasta": 3,
-    "steak": 4, "sushi_set": 5, "lobster": 6,
-    "wagyu": 7, "truffle_course": 8,
-}
+# Menu-item id mapping (auto-loaded from config/menu.json)
+_menu_data = load_json_config("menu.json")
+MENU_IDS = {item["id"]: i + 1 for i, item in enumerate(_menu_data)}
 NUM_MENU = len(MENU_IDS) + 1   # +1 for empty/unknown
 
 # Customer-state encoding for observation
@@ -134,10 +133,11 @@ class TycoonEnv(gymnasium.Env):
 
     metadata = {"render_modes": ["human", "rgb_array"], "render_fps": 10}
 
-    def __init__(self, render_mode=None, **shop_kwargs):
+    def __init__(self, render_mode=None, reward_config=None, **shop_kwargs):
         super().__init__()
         self.shop = Shop(**shop_kwargs)
         self.render_mode = render_mode
+        self._reward_calc = RewardCalculator(reward_config)
 
         self.action_space = spaces.Discrete(NUM_ACTIONS)
         obs_len = _obs_size(self.shop)
@@ -154,9 +154,10 @@ class TycoonEnv(gymnasium.Env):
         return build_observation(self.shop), {}
 
     def step(self, action):
-        reward = self.shop.step(int(action))
+        events = self.shop.step(int(action))
         # Auto-select traits for RL agent
         self.shop.auto_select_trait()
+        reward = self._reward_calc(events)
         obs = build_observation(self.shop)
         terminated = self.shop.done
         truncated = False

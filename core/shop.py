@@ -2,13 +2,14 @@
 
 Systems:
   - Core loop: customer spawn → take order → cook → serve → payment
+  - Chef system: hire chefs (1 chef = 1 dish at a time), limited by kitchen tiles
   - Tip system: satisfaction-based, customer-type-based, trait-based
   - Food unlock: net profit threshold + cost to unlock new menu items
   - Beverage system: separate bar station for drink orders
   - Employee system: auto-waiter AI (take order, submit, pickup, serve)
   - Delivery system: passive income via delivery orders
   - Trait system: periodic offers of permanent bonuses
-  - Customer diversity: family groups, tourist, critic, VIP, etc.
+  - Customer diversity: tourist, critic, VIP, etc.
   - Scoring: net profit tracking
 """
 
@@ -19,7 +20,7 @@ from collections import deque
 from config.settings import (
     TILE_SIZE, STEP_INTERVAL, CUSTOMER_SPAWN_INTERVAL,
     KITCHEN_CAPACITY, DEFAULT_TARGET_MONEY, DEFAULT_DAY_LIMIT,
-    DAY_LENGTH, LOST_CUSTOMER_PENALTY, SATISFACTION_HISTORY_LEN,
+    DAY_LENGTH, SATISFACTION_HISTORY_LEN,
     PLAYER_SPEED, PLAYER_RADIUS, INTERACT_RANGE,
     EMPLOYEE_SPEED, EMPLOYEE_ACTION_DELAY,
     ACTION_UP, ACTION_DOWN, ACTION_LEFT, ACTION_RIGHT,
@@ -93,6 +94,10 @@ class Shop:
             self.kitchen_counter_positions.add((kc["grid_x"], kc["grid_y"]))
 
         self.kitchen = Kitchen(capacity=KITCHEN_CAPACITY)
+
+        # ── chef system ──────────────────────────
+        self.num_chefs: int = KITCHEN_CAPACITY          # starts with 1 chef
+        self.max_chefs: int = len(self.kitchen_counter_positions)  # limited by tiles
 
         # ── bar counters ─────────────────────────
         self.bar_counter_positions: set[tuple[int, int]] = set()
@@ -244,6 +249,8 @@ class Shop:
             self.map_data.get("purchasable_tables", []))
 
         self.kitchen = Kitchen(capacity=KITCHEN_CAPACITY)
+        self.num_chefs = KITCHEN_CAPACITY
+        self.max_chefs = len(self.kitchen_counter_positions)
         self.bar = BarStation(capacity=2)
 
         # ── trash cans (reset) ───────────────────
@@ -315,10 +322,15 @@ class Shop:
     # ═══════════════════════════════════════════════
     #  Step — RL-compatible (includes movement)
     # ═══════════════════════════════════════════════
-    def step(self, action: int) -> float:
-        """Full step for RL: movement + game logic.  Returns reward."""
+    def step(self, action: int) -> list[tuple[str, float]]:
+        """Full step for RL: movement + game logic.
+
+        Returns a list of ``(event_name, value)`` tuples that occurred
+        during this step.  The caller (e.g. ``ai.reward.RewardCalculator``)
+        converts these events into a scalar reward using configurable weights.
+        """
         if self.done:
-            return 0.0
+            return []
 
         dt = STEP_INTERVAL
 
@@ -330,20 +342,20 @@ class Shop:
     # ═══════════════════════════════════════════════
     #  Step Logic — for human mode (movement handled elsewhere)
     # ═══════════════════════════════════════════════
-    def step_logic(self, action: int) -> float:
+    def step_logic(self, action: int) -> list[tuple[str, float]]:
         """Game-logic-only step.  Movement is handled by tick()."""
         if self.done:
-            return 0.0
+            return []
         return self._step_inner(action, STEP_INTERVAL)
 
-    def _step_inner(self, action: int, dt: float) -> float:
-        reward = 0.0
+    def _step_inner(self, action: int, dt: float) -> list[tuple[str, float]]:
+        events: list[tuple[str, float]] = []
 
         # 1) Interaction / upgrade
         if action == ACTION_INTERACT:
-            reward += self._interact()
+            events.extend(self._interact())
         elif action == ACTION_BUY_UPGRADE:
-            reward += self._auto_buy_upgrade()
+            events.extend(self._auto_buy_upgrade())
 
         # 2) Kitchen tick
         self.kitchen.update(dt, self.cook_speed_mult)
@@ -369,13 +381,13 @@ class Shop:
                 self.total_earned += payment
                 self._record_satisfaction(cust.calc_satisfaction())
                 self.customers_served += 1
-                reward += float(payment)
+                events.append(("customer_payment", float(payment)))
                 table.customer = None
 
             elif cust.state == CustomerState.LEAVING_ANGRY:
                 self._record_satisfaction(-1.0)
                 self.customers_lost += 1
-                reward -= LOST_CUSTOMER_PENALTY
+                events.append(("lost_customer", 1.0))
                 table.customer = None
 
         # 5) Delivery-ready food from kitchen
@@ -418,11 +430,11 @@ class Shop:
         if self.money >= self.target_money:
             self.done = True
             self.won = True
-            reward += 200.0
+            events.append(("win", 1.0))
         elif self.time_elapsed >= self.total_time_limit:
             self.done = True
 
-        return reward
+        return events
 
     # ═══════════════════════════════════════════════
     #  Pixel Movement
@@ -490,7 +502,7 @@ class Shop:
     # ═══════════════════════════════════════════════
     #  Distance-based Interaction
     # ═══════════════════════════════════════════════
-    def _interact(self) -> float:
+    def _interact(self) -> list[tuple[str, float]]:
         px = self.player.center_x
         py = self.player.center_y
         fdx, fdy = Player.DIRECTION_VEC[self.player.facing]
@@ -566,7 +578,7 @@ class Shop:
                 best_dist = dist
 
         if best_type is None:
-            return 0.0
+            return []
         if best_type == "table":
             return self._interact_table(best_obj)
         if best_type == "bar":
@@ -575,44 +587,39 @@ class Shop:
             return self._interact_trash()
         return self._interact_kitchen()
 
-    def _interact_table(self, table: Table) -> float:
+    def _interact_table(self, table: Table) -> list[tuple[str, float]]:
         cust = table.customer
         if cust is None:
             self._msg("빈 테이블입니다")
-            return 0.0
+            return []
 
         # Walking customer hasn't arrived yet
         if cust.state == CustomerState.WALKING_TO_TABLE:
             self._msg("손님이 이동 중입니다")
-            return 0.0
+            return []
 
         # ── Take order ───────────────────────────
         if (self.player.is_idle
                 and cust.state == CustomerState.WAITING_TO_ORDER):
-            self.player.pick_up_order(table.table_id, cust.menu_items,
+            self.player.pick_up_order(table.table_id, cust.menu_item,
                                        drink_item=cust.drink_item)
             cust.take_order()
-            names = ", ".join(m["name"] for m in cust.menu_items[:2])
-            extra = f" +{len(cust.menu_items)-2}" if len(cust.menu_items) > 2 else ""
-            self._msg(f"주문: {names}{extra}")
-            return 2.0
+            self._msg(f"주문: {cust.menu_item['name']}")
+            return [("take_order", 1.0)]
 
         # ── Serve food ───────────────────────────
         if self.player.has_food:
             foods = [c for c in self.player.carrying
                      if c["type"] == "food" and c["table_id"] == table.table_id]
             if foods and cust.state == CustomerState.ORDER_TAKEN:
-                served = 0
-                for f in foods:
-                    if cust.serve_food():
-                        self.player.carrying.remove(f)
-                        served += 1
-                if served:
-                    self._msg(f"{served}개 서빙 완료!")
-                    return 5.0 * served
+                f = foods[0]
+                if cust.serve_food():
+                    self.player.carrying.remove(f)
+                    self._msg("서빙 완료!")
+                    return [("serve_food", 1.0)]
             elif not foods:
                 self._msg("다른 테이블입니다!")
-                return -2.0
+                return [("wrong_table", 1.0)]
 
         # ── Serve drink ──────────────────────────
         if self.player.has_drink:
@@ -624,30 +631,30 @@ class Shop:
                     cust.serve_drink()
                     self.player.carrying.remove(d)
                 self._msg("음료 서빙 완료!")
-                return 3.0
+                return [("serve_drink", 1.0)]
 
         if self.player.has_order:
             self._msg("먼저 주방에 주문을 전달하세요!")
         elif self.player.has_food:
             self._msg("다른 테이블입니다!")
-            return -2.0
+            return [("wrong_table", 1.0)]
         else:
             self._msg("이미 주문을 받았습니다")
-        return 0.0
+        return []
 
-    def _interact_kitchen(self) -> float:
+    def _interact_kitchen(self) -> list[tuple[str, float]]:
         # ── Submit orders ────────────────────────
         if self.player.has_order:
             orders = self.player.drop_orders()
             submitted = 0
             for order in orders:
-                for item in order["items"]:
-                    cook_time = max(1.0, item["cook_time"] - self.cook_time_reduction)
-                    ok = self.kitchen.submit_order(
-                        order["table_id"], item,
-                        cook_time_override=cook_time)
-                    if ok:
-                        submitted += 1
+                item = order["item"]
+                cook_time = max(1.0, item["cook_time"] - self.cook_time_reduction)
+                ok = self.kitchen.submit_order(
+                    order["table_id"], item,
+                    cook_time_override=cook_time)
+                if ok:
+                    submitted += 1
 
                 # Auto-queue drink at bar if bartender hired
                 if self.bartender_hired and order.get("drink_item"):
@@ -655,10 +662,10 @@ class Shop:
 
             if submitted:
                 self._msg(f"{submitted}개 조리 시작")
-                return 1.0 * submitted
+                return [("submit_kitchen", float(submitted))]
             else:
                 self._msg("주방이 가득 찼습니다!")
-            return 0.0
+            return []
 
         # ── Pick up food ─────────────────────────
         if self.player.can_carry_more and self.kitchen.has_ready:
@@ -666,42 +673,42 @@ class Shop:
                 dish = self.kitchen.pick_up()
                 self.player.pick_up_food(dish["table_id"], dish["menu_item"])
             self._msg(f"음식 수거 (x{len([c for c in self.player.carrying if c['type']=='food'])})")
-            return 1.0
+            return [("pickup_food", 1.0)]
 
         if self.player.has_food or self.player.has_drink:
             self._msg("먼저 서빙을 완료하세요!")
         elif not self.kitchen.has_ready:
             self._msg("아직 완성된 요리가 없습니다")
-        return 0.0
+        return []
 
-    def _interact_bar(self) -> float:
+    def _interact_bar(self) -> list[tuple[str, float]]:
         """Interact with bar counter to pick up ready drinks."""
         if not self.bartender_hired:
             self._msg("바텐더가 없습니다!")
-            return 0.0
+            return []
 
         if self.player.can_carry_more and self.bar.has_ready:
             drink = self.bar.pick_up()
             if drink:
                 self.player.pick_up_drink(drink["table_id"], drink["drink_item"])
                 self._msg(f"{drink['drink_item']['name']} 수거 완료")
-                return 1.0
+                return [("pickup_drink", 1.0)]
 
         if not self.bar.has_ready:
             self._msg("완성된 음료가 없습니다")
         else:
             self._msg("손이 가득 찼습니다!")
-        return 0.0
+        return []
 
-    def _interact_trash(self) -> float:
+    def _interact_trash(self) -> list[tuple[str, float]]:
         """Interact with trash can to discard carried items."""
         if not self.player.carrying:
             self._msg("버릴 것이 없습니다")
-            return 0.0
+            return []
         count = len(self.player.carrying)
         self.player.carrying.clear()
         self._msg(f"{count}개 항목 폐기!")
-        return 0.5
+        return [("trash", 1.0)]
 
     # ═══════════════════════════════════════════════
     #  Customer spawning
@@ -720,14 +727,7 @@ class Shop:
         table = random.choice(empty_tables)
         ctype = self._pick_customer_type()
 
-        # Group size (family orders multiple items)
-        gs = ctype.get("group_size", [1, 1])
-        if isinstance(gs, list):
-            group_size = random.randint(gs[0], gs[1])
-        else:
-            group_size = int(gs)
-
-        menu_items = [random.choice(avail) for _ in range(group_size)]
+        menu_item = random.choice(avail)
 
         # Optional drink order
         drink_item = None
@@ -740,7 +740,7 @@ class Shop:
             table.table_id,
             table.grid_x * TILE_SIZE,
             table.grid_y * TILE_SIZE,
-            ctype, menu_items,
+            ctype, menu_item,
             drink_item=drink_item,
             patience_bonus=self.patience_bonus,
             entrance_x=self.entrance_x,
@@ -842,6 +842,11 @@ class Shop:
             self._msg("최대 레벨입니다!")
             return False
 
+        # Chef hiring limited by kitchen tiles
+        if upg["effect_type"] == "hire_chef" and self.num_chefs >= self.max_chefs:
+            self._msg("주방 칸이 부족합니다! 주방 확장이 필요합니다.")
+            return False
+
         required = upg.get("unlock_profit", 0)
         if self.net_profit < required:
             self._msg(f"순이익 ${required} 필요!")
@@ -896,8 +901,16 @@ class Shop:
             self.player.speed += val * PLAYER_SPEED
         elif etype == "cook_speed":
             self.cook_speed_mult += val
-        elif etype == "kitchen_capacity":
-            self.kitchen.capacity += int(val)
+        elif etype == "kitchen_expand":
+            self.max_chefs += int(val)
+            self._msg(f"주방 확장! (최대 요리사: {self.max_chefs}명)")
+        elif etype == "hire_chef":
+            if self.num_chefs < self.max_chefs:
+                self.num_chefs += 1
+                self.kitchen.capacity = self.num_chefs
+                self._msg(f"요리사 고용! ({self.num_chefs}/{self.max_chefs})")
+            else:
+                self._msg("주방 칸이 부족합니다! 주방 확장이 필요합니다.")
         elif etype == "wealthy_bonus":
             self.wealthy_bonus += val
         elif etype == "buy_table":
@@ -927,7 +940,7 @@ class Shop:
         self._table_positions[(table.grid_x, table.grid_y)] = table
         self.layout[table.grid_y][table.grid_x] = 2
 
-    def _auto_buy_upgrade(self) -> float:
+    def _auto_buy_upgrade(self) -> list[tuple[str, float]]:
         """RL action: auto-buy cheapest affordable upgrade or food unlock."""
         best_id = None
         best_cost = float('inf')
@@ -964,8 +977,8 @@ class Shop:
                     self._unlock_food(food)
             else:
                 self.buy_upgrade(best_id)
-            return 3.0
-        return -0.1
+            return [("buy_upgrade", 1.0)]
+        return [("no_upgrade", 1.0)]
 
     # ═══════════════════════════════════════════════
     #  Employee AI
@@ -1079,9 +1092,9 @@ class Shop:
             if table and table.customer and table.customer.state == CustomerState.WAITING_TO_ORDER:
                 cust = table.customer
                 cust.take_order()
-                # Carry orders to kitchen
+                # Carry order to kitchen
                 order = {"type": "order", "table_id": table.table_id,
-                         "items": cust.menu_items}
+                         "item": cust.menu_item}
                 if cust.drink_item:
                     order["drink_item"] = cust.drink_item
                 emp.carrying = order
@@ -1090,10 +1103,10 @@ class Shop:
         elif task == "submit_kitchen":
             if emp.carrying and emp.carrying["type"] == "order":
                 order = emp.carrying
-                for item in order["items"]:
-                    cook_time = max(1.0, item["cook_time"] - self.cook_time_reduction)
-                    self.kitchen.submit_order(
-                        order["table_id"], item, cook_time_override=cook_time)
+                item = order["item"]
+                cook_time = max(1.0, item["cook_time"] - self.cook_time_reduction)
+                self.kitchen.submit_order(
+                    order["table_id"], item, cook_time_override=cook_time)
                 if self.bartender_hired and order.get("drink_item"):
                     self.bar.submit_drink(order["table_id"], order["drink_item"])
                 emp.carrying = None

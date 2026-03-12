@@ -3,13 +3,12 @@
 State machine:
   WALKING_TO_TABLE → (arrives at table)   → WAITING_TO_ORDER
   WAITING_TO_ORDER → (player takes order) → ORDER_TAKEN
-  ORDER_TAKEN      → (all food served)    → EATING
+  ORDER_TAKEN      → (food served)        → EATING
   EATING           → (after eat_time)     → LEAVING_HAPPY
   Any waiting state → (patience expires)  → LEAVING_ANGRY
 
-Supports:
-  - Family groups (multiple food items in one order)
-  - Optional drink order (served separately for bonus income)
+Each customer orders exactly one menu item.
+Optional drink order (served separately for bonus income).
 """
 
 import math
@@ -33,7 +32,7 @@ EATING_TIME = 5.0
 class Customer(Entity):
 
     def __init__(self, table_id: int, x: float, y: float,
-                 customer_type: dict, menu_items: list[dict],
+                 customer_type: dict, menu_item: dict,
                  drink_item: dict | None = None,
                  patience_bonus: float = 0.0,
                  entrance_x: float | None = None,
@@ -47,7 +46,7 @@ class Customer(Entity):
                          sprite_key="customer")
         self.table_id = table_id
         self.customer_type = customer_type
-        self.menu_items: list[dict] = menu_items
+        self.menu_item: dict = menu_item
         self.drink_item: dict | None = drink_item
 
         # Walking target (table pixel position)
@@ -67,24 +66,13 @@ class Customer(Entity):
 
         self.wealth_mult = float(customer_type["wealth_mult"])
         self.tip_range = customer_type["tip_range"]
-        self.group_size: int = len(menu_items)
 
         # Tracking
-        self.food_served_count: int = 0
+        self.food_served: bool = False
         self.drink_served: bool = False
         self.order_claimed: bool = False   # prevent double employee assignment
 
         self._base_color = self.color
-
-    # ── backward compat ──────────────────────────
-    @property
-    def menu_item(self) -> dict | None:
-        """Primary menu item (first in list)."""
-        return self.menu_items[0] if self.menu_items else None
-
-    @property
-    def all_food_served(self) -> bool:
-        return self.food_served_count >= self.group_size
 
     # ── patience helpers ─────────────────────────
     @property
@@ -144,15 +132,14 @@ class Customer(Entity):
         if self.state == CustomerState.WAITING_TO_ORDER:
             self.state = CustomerState.ORDER_TAKEN
 
-    # ── food served by player (one dish at a time) ─
+    # ── food served by player ────────────────────
     def serve_food(self):
-        """Serve one food item.  When all served, start eating."""
+        """Serve the food item and start eating."""
         if self.state != CustomerState.ORDER_TAKEN:
             return False
-        self.food_served_count += 1
-        if self.all_food_served:
-            self.state = CustomerState.EATING
-            self.eat_timer = EATING_TIME
+        self.food_served = True
+        self.state = CustomerState.EATING
+        self.eat_timer = EATING_TIME
         return True
 
     # ── drink served ─────────────────────────────
@@ -168,10 +155,8 @@ class Customer(Entity):
                      tip_bonus_pct: float = 0.0,
                      base_tip_bonus: int = 0) -> int:
         """Money earned from this customer."""
-        total = 0
-        for item in self.menu_items:
-            base = item["price"] + food_price_bonus
-            total += int(base * self.wealth_mult)
+        base = self.menu_item["price"] + food_price_bonus
+        total = int(base * self.wealth_mult)
 
         satisfaction = self.patience_ratio
         tip_lo, tip_hi = self.tip_range

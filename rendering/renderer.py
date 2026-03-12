@@ -198,19 +198,13 @@ class Renderer:
             elif cust.state == CustomerState.WAITING_TO_ORDER:
                 icon = self.font_sm.render("?!", True, (255, 255, 255))
             elif cust.state == CustomerState.ORDER_TAKEN:
-                remaining = cust.group_size - cust.food_served_count
-                lbl = f"{remaining}x" if remaining > 1 else cust.menu_item["name"][:3]
+                lbl = cust.menu_item["name"][:3]
                 icon = self.font_sm.render(lbl, True, (200, 200, 100))
             elif cust.state == CustomerState.EATING:
                 icon = self.font_sm.render("냠냠", True, (100, 255, 100))
             else:
                 icon = self.font_sm.render("...", True, (150, 150, 150))
             surface.blit(icon, icon.get_rect(center=body.center))
-
-            # Group size badge (top-left)
-            if cust.group_size > 1:
-                badge = self.font_sm.render(f"x{cust.group_size}", True, (255, 200, 0))
-                surface.blit(badge, (cx + 2, cy + 2))
 
             # Drink indicator (top-right)
             if cust.drink_item and not cust.drink_served:
@@ -287,7 +281,8 @@ class Renderer:
         parts2 = [
             f"서빙:{shop.customers_served}",
             f"이탈:{shop.customers_lost}",
-            f"주방:{shop.kitchen.num_cooking}/{shop.kitchen.capacity}",
+            f"요리사:{shop.num_chefs}/{shop.max_chefs}",
+            f"조리:{shop.kitchen.num_cooking}/{shop.kitchen.capacity}",
             f"테이블:{len(shop.tables)}",
         ]
         if shop.employees:
