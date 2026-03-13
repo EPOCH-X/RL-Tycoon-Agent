@@ -211,8 +211,13 @@ class Shop:
 
     @property
     def final_score(self) -> float:
-        """최종 스코어 = 순이익 × (평점 / 10). 평점 5.0 → 계수 0.5."""
-        return self.net_profit * (self.shop_rating_stars / 10.0)
+        """최종 스코어 = 순이익 × (1 + 평점/10).
+
+        평점 0.0 → ×1.0 (순이익 그대로)
+        평점 4.4 → ×1.44
+        평점 5.0 → ×1.5 (최대 보너스)
+        """
+        return self.net_profit * (1.0 + self.shop_rating_stars / 10.0)
 
     @property
     def total_time_limit(self) -> float:
@@ -486,12 +491,30 @@ class Shop:
                 self._record_satisfaction(cust.calc_satisfaction())
                 self.customers_served += 1
                 events.append(("customer_payment", float(payment)))
+                # 떠난 손님 관련 잔여 음식 정리 (안전장치)
+                self.kitchen.remove_for_table(table.table_id)
+                if self.bartender_hired:
+                    self.bar.remove_for_table(table.table_id)
                 table.customer = None
 
             elif cust.state == CustomerState.LEAVING_ANGRY:
                 self._record_satisfaction(-1.0)
                 self.customers_lost += 1
                 events.append(("lost_customer", 1.0))
+                # ── 고아 음식 정리: 떠난 손님의 주문을 주방/바에서 제거 ──
+                orphaned = self.kitchen.remove_for_table(table.table_id)
+                if self.bartender_hired:
+                    orphaned += self.bar.remove_for_table(table.table_id)
+                # 플레이어가 들고 있는 해당 테이블 음식/음료도 제거
+                before_carry = len(self.player.carrying)
+                self.player.carrying = [
+                    c for c in self.player.carrying
+                    if c.get("table_id") != table.table_id
+                    or c["type"] == "order"  # 주문서는 이미 제출됐을 수 없음
+                ]
+                orphaned += before_carry - len(self.player.carrying)
+                if orphaned > 0:
+                    events.append(("orphan_cleared", float(orphaned)))
                 table.customer = None
 
         # 5) Delivery-ready food from kitchen
@@ -533,7 +556,7 @@ class Shop:
         # 12) Termination
         if self.time_elapsed >= self.total_time_limit:
             self.done = True
-            # 최종 스코어 = 순이익 × (평점/10)
+            # 최종 스코어 = 순이익 × (1 + 평점/10)
             events.append(("game_end", self.final_score))
             if self.money >= self.target_money:
                 self.won = True
@@ -689,7 +712,35 @@ class Shop:
                 if is_idle and self.bar.has_ready:
                     return self._interact_bar()
 
+        # 쓰레기통 확인 (고아 아이템 자동 폐기)
+        if self.player.carrying and self._has_orphan_carrying():
+            for tpos in self.trash_can_positions:
+                tcx = tpos[0] * TILE_SIZE + TILE_SIZE / 2
+                tcy = tpos[1] * TILE_SIZE + TILE_SIZE / 2
+                dist = math.hypot(tcx - px, tcy - py)
+                if dist > INTERACT_RANGE:
+                    continue
+                if dist > 1e-3:
+                    dirx = (tcx - px) / dist
+                    diry = (tcy - py) / dist
+                    if dirx * fdx + diry * fdy < 0.1:
+                        continue
+                return self._interact_trash()
+
         return []
+
+    def _has_orphan_carrying(self) -> bool:
+        """플레이어가 손님이 떠난 테이블의 음식/음료를 들고 있는지 확인."""
+        if not self.player.carrying:
+            return False
+        occupied_table_ids = {
+            t.table_id for t in self.tables if t.customer is not None
+        }
+        return any(
+            c.get("table_id", -1) not in occupied_table_ids
+            for c in self.player.carrying
+            if c["type"] in ("food", "drink")
+        )
 
     # ═══════════════════════════════════════════════
     #  Distance-based Interaction
@@ -893,14 +944,38 @@ class Shop:
         return []
 
     def _interact_trash(self) -> list[tuple[str, float]]:
-        """Interact with trash can to discard carried items."""
+        """Interact with trash can to discard carried items.
+
+        고아 아이템(손님이 떠난 테이블의 음식/음료)은 'trash_orphan'
+        이벤트로 분류하여 보상을 다르게 처리합니다.
+        """
         if not self.player.carrying:
             self._msg("버릴 것이 없습니다")
             return []
-        count = len(self.player.carrying)
+
+        # 고아 아이템 vs 유효 아이템 분류
+        orphan_count = 0
+        valid_count = 0
+        occupied_table_ids = {
+            t.table_id for t in self.tables if t.customer is not None
+        }
+        for item in self.player.carrying:
+            tid = item.get("table_id", -1)
+            if tid not in occupied_table_ids:
+                orphan_count += 1
+            else:
+                valid_count += 1
+
         self.player.carrying.clear()
-        self._msg(f"{count}개 항목 폐기!")
-        return [("trash", 1.0)]
+        total = orphan_count + valid_count
+        self._msg(f"{total}개 항목 폐기!")
+
+        events: list[tuple[str, float]] = []
+        if orphan_count > 0:
+            events.append(("trash_orphan", float(orphan_count)))
+        if valid_count > 0:
+            events.append(("trash", float(valid_count)))
+        return events
 
     # ═══════════════════════════════════════════════
     #  Customer spawning
@@ -1132,24 +1207,50 @@ class Shop:
         self._table_positions[(table.grid_x, table.grid_y)] = table
         self.layout[table.grid_y][table.grid_x] = 2
 
+    # ── 업그레이드 우선순위 (ROI 기반) ──
+    # 값이 클수록 우선 구매. 게임 진행 단계에 따라 달라짐.
+    _UPGRADE_PRIORITY = {
+        "speed_shoes":     8,   # 초반 이동속도 = 서빙 효율 핵심
+        "hire_chef":       9,   # 요리사 = 처리량 병목 해소
+        "buy_table":       7,   # 테이블 = 동시 손님 수
+        "cook_speed":      6,   # 조리 속도 = 회전율
+        "kitchen_expand":  5,   # 주방 확장 → 요리사 추가 가능
+        "marketing":       4,   # 부유한 손님 = 수익 UP
+        "hire_waiter":     10,  # 종업원 = 자동화 (최우선)
+        "hire_bartender":  3,   # 음료 서비스
+        "hire_delivery":   2,   # 배달 = 추가 수익
+        "employee_speed":  3,   # 직원 속도
+    }
+
     def _auto_buy_upgrade(self) -> list[tuple[str, float]]:
-        """RL action: auto-buy cheapest affordable upgrade or food unlock."""
-        best_id = None
-        best_cost = float('inf')
+        """RL action: 전략적 업그레이드 구매.
+
+        단순 최저가가 아닌, ROI 우선순위 기반으로 구매합니다.
+        음식 해금은 가격 대비 수익률이 높은 것을 우선합니다.
+        """
+        candidates: list[tuple[float, str, int]] = []  # (priority, id, cost)
+
         for upg in self.upgrades_data:
             uid = upg["id"]
             level = self.upgrade_levels[uid]
             if level >= upg["max_level"]:
                 continue
+            # 요리사: 주방 칸 한도 체크
+            if upg["effect_type"] == "hire_chef" and self.num_chefs >= self.max_chefs:
+                continue
             req = upg.get("unlock_profit", 0)
             if self.net_profit < req:
                 continue
             cost = int(upg["base_cost"] * (upg["cost_multiplier"] ** level))
-            if cost <= self.money and cost < best_cost:
-                best_id = uid
-                best_cost = cost
+            if cost > self.money:
+                continue
+            priority = self._UPGRADE_PRIORITY.get(uid, 1)
+            # 레벨이 높아질수록 우선도 감소 (첫 구매가 가장 가치 있음)
+            priority -= level * 0.5
+            candidates.append((priority, uid, cost))
 
-        # Also consider food unlocks
+        # 음식 해금: 해금 가능한 것 중 가격이 가장 높은 메뉴 우선
+        # (비싼 메뉴 = 높은 수익 → 장기적 ROI 최대화)
         for item in self.menu:
             if item["id"] in self.unlocked_food:
                 continue
@@ -1157,20 +1258,28 @@ class Shop:
             if self.net_profit < req:
                 continue
             cost = item.get("unlock_cost", 0)
-            if cost <= self.money and cost < best_cost:
-                best_id = f"food:{item['id']}"
-                best_cost = cost
+            if cost > self.money:
+                continue
+            # 음식 해금 우선도: 가격 기반 (비싼 음식 = 높은 우선도)
+            food_priority = 5.0 + item["price"] / 20.0
+            candidates.append((food_priority, f"food:{item['id']}", cost))
 
-        if best_id:
-            if best_id.startswith("food:"):
-                fid = best_id[5:]
-                food = next((m for m in self.menu if m["id"] == fid), None)
-                if food:
-                    self._unlock_food(food)
-            else:
-                self.buy_upgrade(best_id)
-            return [("buy_upgrade", 1.0)]
-        return [("no_upgrade", 1.0)]
+        if not candidates:
+            return [("no_upgrade", 1.0)]
+
+        # 우선도 높은 것 선택
+        candidates.sort(key=lambda c: c[0], reverse=True)
+        _, best_id, _ = candidates[0]
+
+        if best_id.startswith("food:"):
+            fid = best_id[5:]
+            food = next((m for m in self.menu if m["id"] == fid), None)
+            if food:
+                self._unlock_food(food)
+                return [("food_unlock", float(food["price"]))]
+        else:
+            self.buy_upgrade(best_id)
+        return [("buy_upgrade", 1.0)]
 
     # ═══════════════════════════════════════════════
     #  Employee AI
@@ -1212,7 +1321,7 @@ class Shop:
                 tx, ty = self.get_table_interaction_point(table, emp.x, emp.y)
                 emp.assign("serve", tx, ty, tid)
             elif self.trash_can_positions:
-                tcx, tcy = self._trash_center()
+                tcx, tcy = self._trash_center(emp.x, emp.y)
                 emp.assign("discard_trash", tcx, tcy)
             else:
                 emp.carrying = None
@@ -1221,7 +1330,7 @@ class Shop:
 
         # 2. If carrying order → go to kitchen
         if emp.carrying and emp.carrying["type"] == "order":
-            kcx, kcy = self._kitchen_center()
+            kcx, kcy = self._kitchen_center(emp.x, emp.y)
             emp.assign("submit_kitchen", kcx, kcy)
             return
 
@@ -1231,14 +1340,14 @@ class Shop:
         # Kitchen has ready food → pickup
         if self.kitchen.has_ready:
             if not self._task_claimed_by_other(emp, "pickup_food"):
-                kcx, kcy = self._kitchen_center()
+                kcx, kcy = self._kitchen_center(emp.x, emp.y)
                 dist = math.hypot(emp.x - kcx, emp.y - kcy)
                 candidates.append(("pickup_food", kcx, kcy, None, 8.0 / (dist + 1)))
 
         # Bar has ready drink → pickup
         if self.bartender_hired and self.bar.has_ready:
             if not self._task_claimed_by_other(emp, "pickup_drink"):
-                bcx, bcy = self._bar_center()
+                bcx, bcy = self._bar_center(emp.x, emp.y)
                 dist = math.hypot(emp.x - bcx, emp.y - bcy)
                 candidates.append(("pickup_drink", bcx, bcy, None, 7.0 / (dist + 1)))
 
@@ -1344,19 +1453,25 @@ class Shop:
                 return t
         return None
 
-    def _kitchen_center(self) -> tuple[float, float]:
+    def _kitchen_center(self, ref_x: float | None = None,
+                        ref_y: float | None = None) -> tuple[float, float]:
         if self.kitchen_counter_positions:
-            return self.get_station_interaction_point(self.kitchen_counter_positions)
+            return self.get_station_interaction_point(
+                self.kitchen_counter_positions, ref_x, ref_y)
         return TILE_SIZE * 3, TILE_SIZE * 8
 
-    def _bar_center(self) -> tuple[float, float]:
+    def _bar_center(self, ref_x: float | None = None,
+                    ref_y: float | None = None) -> tuple[float, float]:
         if self.bar_counter_positions:
-            return self.get_station_interaction_point(self.bar_counter_positions)
+            return self.get_station_interaction_point(
+                self.bar_counter_positions, ref_x, ref_y)
         return TILE_SIZE * 8, TILE_SIZE * 8
 
-    def _trash_center(self) -> tuple[float, float]:
+    def _trash_center(self, ref_x: float | None = None,
+                      ref_y: float | None = None) -> tuple[float, float]:
         if self.trash_can_positions:
-            return self.get_station_interaction_point(self.trash_can_positions)
+            return self.get_station_interaction_point(
+                self.trash_can_positions, ref_x, ref_y)
         return TILE_SIZE * 13, TILE_SIZE * 1
 
     # ═══════════════════════════════════════════════
@@ -1443,10 +1558,37 @@ class Shop:
         self._msg(f"특성: {trait['name']}!")
         return True
 
+    # ── 특성 가치 평가 (상황 기반) ──
+    _TRAIT_BASE_VALUE = {
+        "gourmet":          7,   # 음식 가격 +$2 → 꾸준한 수익 증가
+        "master_chef":      6,   # 조리 시간 -1초 → 회전율
+        "skilled_server":   8,   # 운반 +1 → 효율 대폭 증가
+        "charming":         5,   # 팁 +30%
+        "efficient":        4,   # 이동 속도 +15%
+        "popular":          3,   # 손님 빈도 +20% (후반에만 유용)
+        "patient_service":  9,   # 인내심 +5초 → 이탈 방지 (가장 중요)
+        "tip_jar":          5,   # 기본 팁 +$3
+    }
+
     def auto_select_trait(self):
-        """RL auto-pick: first available choice."""
-        if self.trait_selection_active and self.trait_choices:
-            self.select_trait(0)
+        """RL auto-pick: 상황에 맞는 최적 특성 선택."""
+        if not self.trait_selection_active or not self.trait_choices:
+            return
+        best_idx = 0
+        best_val = -1
+        for i, trait in enumerate(self.trait_choices):
+            tid = trait["id"]
+            max_stacks = trait.get("max_stacks", 1)
+            current = self.traits.get(tid, 0)
+            if current >= max_stacks:
+                continue
+            val = self._TRAIT_BASE_VALUE.get(tid, 1)
+            # 이미 보유 중이면 가치 약간 감소 (다양성 유도)
+            val -= current * 1.5
+            if val > best_val:
+                best_val = val
+                best_idx = i
+        self.select_trait(best_idx)
 
     def _apply_trait(self, trait: dict):
         effect = trait.get("effect", "")

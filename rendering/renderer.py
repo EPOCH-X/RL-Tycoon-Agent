@@ -522,9 +522,10 @@ class Renderer:
             title = self.font_lg.render("시간 종료!", True, (255, 100, 100))
         surface.blit(title, title.get_rect(center=(cx, cy - 40)))
 
+        rating_mult = 1.0 + shop.shop_rating_stars / 10.0
         score_txt = self.font_md.render(
             f"최종 스코어: {shop.final_score:,.1f}"
-            f"  (순이익 ${shop.net_profit:,} × 평점계수 {shop.shop_rating_stars / 10:.2f})",
+            f"  (순이익 ${shop.net_profit:,} × 평점계수 {rating_mult:.2f})",
             True, (255, 255, 150))
         surface.blit(score_txt, score_txt.get_rect(center=(cx, cy - 10)))
 

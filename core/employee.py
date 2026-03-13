@@ -44,18 +44,28 @@ class Employee(Entity):
     # ── movement ──────────────────────────────────
     def move_toward(self, tx: float, ty: float, dt: float,
                     can_move_fn) -> bool:
-        """Move toward (tx, ty).  Return True when close enough."""
-        dx = tx - self.x
-        dy = ty - self.y
+        """Move toward (tx, ty).  Return True when close enough.
+
+        tx, ty는 타일 중심 좌표이므로, 엔티티의 중심(center)과
+        비교하여 거리 계산합니다.  _can_move_to는 top-left 기준이므로
+        이동 좌표는 top-left로 변환합니다.
+        """
+        # 엔티티 중심 → 타겟 중심 거리
+        cx = self.x + TILE_SIZE / 2
+        cy = self.y + TILE_SIZE / 2
+        dx = tx - cx
+        dy = ty - cy
         dist = math.hypot(dx, dy)
-        arrive_dist = TILE_SIZE * 0.4
+        arrive_dist = TILE_SIZE * 0.6
 
         if dist <= arrive_dist:
             return True
 
         step = self.speed * dt
         if step >= dist:
-            nx, ny = tx, ty
+            # 정확한 중심 정렬: top-left = target - half_tile
+            nx = tx - TILE_SIZE / 2
+            ny = ty - TILE_SIZE / 2
         else:
             nx = self.x + dx / dist * step
             ny = self.y + dy / dist * step
@@ -68,7 +78,10 @@ class Employee(Entity):
         elif can_move_fn(self.x, ny):
             self.y = ny
 
-        return math.hypot(tx - self.x, ty - self.y) <= arrive_dist
+        # 도착 판정도 중심 기준
+        cx = self.x + TILE_SIZE / 2
+        cy = self.y + TILE_SIZE / 2
+        return math.hypot(tx - cx, ty - cy) <= arrive_dist
 
     # ── assign task ───────────────────────────────
     def assign(self, task: str, target_x: float, target_y: float,

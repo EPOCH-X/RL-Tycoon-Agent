@@ -51,9 +51,17 @@ def _get_primary_target_point(shop: Shop) -> tuple[float, float] | None:
         first = shop.player.first_carried
         if first:
             tid = first.get("table_id", -1)
+            # 고아 아이템 확인: 해당 테이블에 손님이 없으면 → 쓰레기통
+            target_table = None
             for table in shop.tables:
                 if table.table_id == tid:
-                    return shop.get_table_interaction_point(table, px, py)
+                    target_table = table
+                    break
+            if target_table is None or target_table.customer is None:
+                # 고아 음식/음료 → 쓰레기통으로 유도
+                return shop.get_station_interaction_point(
+                    shop.trash_can_positions, px, py)
+            return shop.get_table_interaction_point(target_table, px, py)
         return None
 
     if shop.player.has_order:
@@ -81,7 +89,16 @@ def _get_primary_target_signature(shop: Shop) -> tuple[str, int] | None:
     if shop.player.has_food or shop.player.has_drink:
         first = shop.player.first_carried
         if first:
-            return ("table", int(first.get("table_id", -1)))
+            tid = int(first.get("table_id", -1))
+            # 고아 아이템 → 쓰레기통이 타겟
+            target_table = None
+            for table in shop.tables:
+                if table.table_id == tid:
+                    target_table = table
+                    break
+            if target_table is None or target_table.customer is None:
+                return ("trash", 0)
+            return ("table", tid)
         return None
 
     if shop.player.has_order:
@@ -355,10 +372,19 @@ class TycoonEnv(gymnasium.Env):
             first = shop.player.first_carried
             if first:
                 tid = first.get("table_id", -1)
+                # 고아 아이템 → 쓰레기통 방향
+                target_table = None
                 for table in shop.tables:
                     if table.table_id == tid:
-                        consider(table.center_x, table.center_y)
+                        target_table = table
                         break
+                if target_table is None or target_table.customer is None:
+                    # 쓰레기통으로 향함
+                    for gx, gy in shop.trash_can_positions:
+                        consider(gx * TILE_SIZE + TILE_SIZE / 2,
+                                 gy * TILE_SIZE + TILE_SIZE / 2)
+                else:
+                    consider(target_table.center_x, target_table.center_y)
         elif shop.player.has_order:
             for gx, gy in shop.kitchen_counter_positions:
                 consider(gx * TILE_SIZE + TILE_SIZE / 2,

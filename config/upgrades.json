@@ -81,7 +81,7 @@
     "effect_type": "hire_waiter",
     "effect_value": 1,
     "max_level": 2,
-    "unlock_profit": 400
+    "unlock_profit": 350
   },
   {
     "id": "hire_bartender",
@@ -105,7 +105,7 @@
     "effect_type": "hire_delivery",
     "effect_value": 1,
     "max_level": 1,
-    "unlock_profit": 800
+    "unlock_profit": 600
   },
   {
     "id": "employee_speed",
@@ -117,6 +117,6 @@
     "effect_type": "employee_speed",
     "effect_value": 0.25,
     "max_level": 3,
-    "unlock_profit": 300
+    "unlock_profit": 250
   }
 ]

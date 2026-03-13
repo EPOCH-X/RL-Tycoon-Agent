@@ -108,6 +108,20 @@ class Kitchen:
                 still_cooking.append(order)
         self.cooking = still_cooking
 
+    def remove_for_table(self, table_id: int) -> int:
+        """Remove all cooking/ready items for *table_id*.
+
+        Returns the number of items removed (for reward/event tracking).
+        Called when a customer leaves before their food is served.
+        """
+        before = len(self.cooking) + len(self.ready)
+        self.cooking = [o for o in self.cooking
+                        if o["table_id"] != table_id]
+        self.ready = [o for o in self.ready
+                      if o["table_id"] != table_id]
+        after = len(self.cooking) + len(self.ready)
+        return before - after
+
     def reset(self):
         self.cooking.clear()
         self.ready.clear()
@@ -166,6 +180,19 @@ class BarStation:
             else:
                 still_preparing.append(order)
         self.preparing = still_preparing
+
+    def remove_for_table(self, table_id: int) -> int:
+        """Remove all preparing/ready drinks for *table_id*.
+
+        Returns the number of items removed.
+        """
+        before = len(self.preparing) + len(self.ready)
+        self.preparing = [o for o in self.preparing
+                          if o["table_id"] != table_id]
+        self.ready = [o for o in self.ready
+                      if o["table_id"] != table_id]
+        after = len(self.preparing) + len(self.ready)
+        return before - after
 
     def reset(self):
         self.preparing.clear()

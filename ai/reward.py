@@ -26,14 +26,17 @@ DEFAULT_WEIGHTS: dict[str, float] = {
     "serve_drink":        8.0,
     "customer_payment":   1.0,
     # ── 페널티 ──
-    "lost_customer":     -5.0,    # 손님 이탈 페널티 (서비스 유도)
+    "lost_customer":    -15.0,    # 손님 이탈 페널티 (서비스체인 33의 ~45%)
     "wrong_table":       -2.0,
-    "trash":             -0.5,
-    "blocked_move":      -0.05,
-    "idle_penalty":      -0.1,    # WAIT 액션 시 매 스텝
+    "trash":             -1.0,    # 유효한 음식 폐기 (강한 페널티)
+    "trash_orphan":       0.5,    # 고아 음식 폐기 (올바른 행동 = 소량 보상)
+    "orphan_cleared":     0.0,    # 시스템 자동 정리 (정보용, 보상 없음)
+    "blocked_move":      -0.1,
+    "idle_penalty":      -0.3,    # WAIT 액션 시 매 스텝 (강화)
     "time_penalty":      -0.02,   # 매 스텝 시간 압박
     # ── 업그레이드 ──
     "buy_upgrade":        2.0,
+    "food_unlock":        0.3,    # 음식 해금 (value=메뉴가격, 0.3×가격=보상)
     "no_upgrade":         0.0,
     # ── 게임 마일스톤 ──
     "win":              200.0,
