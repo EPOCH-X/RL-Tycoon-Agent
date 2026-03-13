@@ -12,7 +12,8 @@ from stable_baselines3.common.callbacks import EvalCallback
 from algorithms.base import BaseTrainer
 from algorithms.common import (
     load_algo_config, make_vec_env, build_policy_kwargs,
-    save_run_config, get_sb3_device, EarlyStopCallback,
+    save_run_config, get_sb3_device, KoreanEvalStopCallback,
+    print_metric_reference,
 )
 
 
@@ -81,13 +82,15 @@ class PPOTrainer(BaseTrainer):
             log_path=os.path.join(self.save_path, "eval_logs"),
             eval_freq=eval_freq,
             deterministic=True,
-            callback_after_eval=EarlyStopCallback(
+            verbose=0,
+            callback_after_eval=KoreanEvalStopCallback(
                 patience=50, min_delta=1.0, verbose=1),
         )
 
     # ── train ────────────────────────────────────
     def train(self) -> dict[str, Any]:
         assert self.model is not None, "call build() first"
+        print_metric_reference()
         self.model.learn(total_timesteps=self._timesteps, callback=self._eval_cb)
         self.save(os.path.join(self.save_path, "final_model"))
         self._cleanup()

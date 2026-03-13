@@ -218,6 +218,84 @@ class Shop:
     def total_time_limit(self) -> float:
         return self.day_limit * DAY_LENGTH
 
+    def _is_walkable_tile(self, grid_x: int, grid_y: int) -> bool:
+        return (
+            0 <= grid_x < self.grid_width
+            and 0 <= grid_y < self.grid_height
+            and self.layout[grid_y][grid_x] == 0
+        )
+
+    def _tile_center(self, grid_x: int, grid_y: int) -> tuple[float, float]:
+        return (
+            grid_x * TILE_SIZE + TILE_SIZE / 2,
+            grid_y * TILE_SIZE + TILE_SIZE / 2,
+        )
+
+    def _interaction_anchor_tiles(self, grid_x: int, grid_y: int) -> list[tuple[int, int]]:
+        anchors: list[tuple[int, int]] = []
+        for dx, dy in ((0, 1), (0, -1), (-1, 0), (1, 0)):
+            nx, ny = grid_x + dx, grid_y + dy
+            if self._is_walkable_tile(nx, ny):
+                anchors.append((nx, ny))
+        return anchors
+
+    def _select_anchor_tile(
+        self,
+        candidates: list[tuple[int, int]],
+        reference_x: float | None = None,
+        reference_y: float | None = None,
+    ) -> tuple[int, int] | None:
+        if not candidates:
+            return None
+        if reference_x is None or reference_y is None:
+            return candidates[0]
+        return min(
+            candidates,
+            key=lambda pos: (
+                math.hypot(
+                    self._tile_center(*pos)[0] - reference_x,
+                    self._tile_center(*pos)[1] - reference_y,
+                ),
+                pos[1],
+                pos[0],
+            ),
+        )
+
+    def get_table_interaction_point(
+        self,
+        table: Table,
+        reference_x: float | None = None,
+        reference_y: float | None = None,
+    ) -> tuple[float, float]:
+        anchor = self._select_anchor_tile(
+            self._interaction_anchor_tiles(table.grid_x, table.grid_y),
+            reference_x,
+            reference_y,
+        )
+        if anchor is None:
+            return table.center_x, table.center_y
+        return self._tile_center(*anchor)
+
+    def get_station_interaction_point(
+        self,
+        positions: set[tuple[int, int]],
+        reference_x: float | None = None,
+        reference_y: float | None = None,
+    ) -> tuple[float, float]:
+        ordered_positions = sorted(positions)
+        candidates: list[tuple[int, int]] = []
+        for grid_x, grid_y in ordered_positions:
+            for anchor in self._interaction_anchor_tiles(grid_x, grid_y):
+                if anchor not in candidates:
+                    candidates.append(anchor)
+
+        selected = self._select_anchor_tile(candidates, reference_x, reference_y)
+        if selected is not None:
+            return self._tile_center(*selected)
+        if ordered_positions:
+            return self._tile_center(*ordered_positions[0])
+        return self._tile_center(0, 0)
+
     @property
     def time_remaining(self) -> float:
         return max(0.0, self.total_time_limit - self.time_elapsed)
@@ -1028,7 +1106,8 @@ class Shop:
             tid = emp.carrying["table_id"]
             table = self._find_table(tid)
             if table and table.customer:
-                emp.assign("serve", table.center_x, table.center_y, tid)
+                tx, ty = self.get_table_interaction_point(table, emp.x, emp.y)
+                emp.assign("serve", tx, ty, tid)
             elif self.trash_can_positions:
                 tcx, tcy = self._trash_center()
                 emp.assign("discard_trash", tcx, tcy)
@@ -1067,11 +1146,11 @@ class Shop:
                     and not table.customer.order_claimed
                     and not self._task_claimed_by_other(
                         emp, "take_order", table.table_id)):
-                dist = math.hypot(emp.x - table.center_x,
-                                  emp.y - table.center_y)
+                tx, ty = self.get_table_interaction_point(table, emp.x, emp.y)
+                dist = math.hypot(emp.x - tx, emp.y - ty)
                 urgency = 1.0 + (1.0 - table.customer.patience_ratio) * 5.0
                 candidates.append((
-                    "take_order", table.center_x, table.center_y,
+                    "take_order", tx, ty,
                     table.table_id, urgency * 5.0 / (dist + 1)))
 
         if candidates:
@@ -1164,20 +1243,17 @@ class Shop:
 
     def _kitchen_center(self) -> tuple[float, float]:
         if self.kitchen_counter_positions:
-            kp = next(iter(self.kitchen_counter_positions))
-            return kp[0] * TILE_SIZE + TILE_SIZE / 2, kp[1] * TILE_SIZE + TILE_SIZE / 2
+            return self.get_station_interaction_point(self.kitchen_counter_positions)
         return TILE_SIZE * 3, TILE_SIZE * 8
 
     def _bar_center(self) -> tuple[float, float]:
         if self.bar_counter_positions:
-            bp = next(iter(self.bar_counter_positions))
-            return bp[0] * TILE_SIZE + TILE_SIZE / 2, bp[1] * TILE_SIZE + TILE_SIZE / 2
+            return self.get_station_interaction_point(self.bar_counter_positions)
         return TILE_SIZE * 8, TILE_SIZE * 8
 
     def _trash_center(self) -> tuple[float, float]:
         if self.trash_can_positions:
-            tp = next(iter(self.trash_can_positions))
-            return tp[0] * TILE_SIZE + TILE_SIZE / 2, tp[1] * TILE_SIZE + TILE_SIZE / 2
+            return self.get_station_interaction_point(self.trash_can_positions)
         return TILE_SIZE * 13, TILE_SIZE * 1
 
     # ═══════════════════════════════════════════════

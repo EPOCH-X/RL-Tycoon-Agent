@@ -21,7 +21,7 @@ from stable_baselines3.common.callbacks import BaseCallback, EvalCallback
 from algorithms.base import BaseTrainer
 from algorithms.common import (
     load_algo_config, build_policy_kwargs, save_run_config,
-    get_sb3_device, EarlyStopCallback,
+    get_sb3_device, KoreanEvalStopCallback, print_metric_reference,
 )
 from algorithms.marl.self_play_env import SelfPlayEnv
 
@@ -171,14 +171,26 @@ class MARLTrainer(BaseTrainer):
     def train(self) -> dict[str, Any]:
         assert self.model is not None, "call build() first"
 
-        early_cb = EarlyStopCallback(patience=50, min_delta=1.0, verbose=1)
-        eval_env = DummyVecEnv([lambda: SelfPlayEnv()])
+        early_cb = KoreanEvalStopCallback(patience=50, min_delta=1.0, verbose=1)
+        reward_cfg = self.cfg.get("reward_shaping", {})
+        game_ov = self.cfg.get("game_overrides", {})
+
+        def _make_eval_env():
+            kwargs = {}
+            if game_ov.get("target_money") is not None:
+                kwargs["target_money"] = game_ov["target_money"]
+            if game_ov.get("day_limit") is not None:
+                kwargs["day_limit"] = game_ov["day_limit"]
+            return SelfPlayEnv(reward_config=reward_cfg, **kwargs)
+
+        eval_env = DummyVecEnv([_make_eval_env])
         eval_cb = EvalCallback(
             eval_env,
             best_model_save_path=self.save_path,
             log_path=os.path.join(self.save_path, "eval_logs"),
             eval_freq=self.cfg.get("training", {}).get("eval_freq", 5000),
             deterministic=True,
+            verbose=0,
             callback_after_eval=early_cb,
         )
 
@@ -187,6 +199,7 @@ class MARLTrainer(BaseTrainer):
             update_freq=self._update_freq, verbose=1,
         )
 
+        print_metric_reference()
         self.model.learn(total_timesteps=self._timesteps, callback=[eval_cb, sp_cb])
         self.save(os.path.join(self.save_path, "final_model"))
         self.train_env.close()

@@ -29,20 +29,23 @@
   },
 
   "reward_shaping": {
-    "take_order": 2.0,
-    "serve_food": 5.0,
-    "submit_kitchen": 1.0,
-    "pickup_food": 1.0,
-    "pickup_drink": 1.0,
-    "serve_drink": 3.0,
-    "customer_payment": 1.0,
-    "lost_customer": -30.0,
+    "take_order": 8.0,
+    "serve_food": 15.0,
+    "submit_kitchen": 4.0,
+    "pickup_food": 3.0,
+    "pickup_drink": 2.0,
+    "serve_drink": 6.0,
+    "customer_payment": 0.25,
+    "lost_customer": -15.0,
     "wrong_table": -2.0,
-    "buy_upgrade": 3.0,
-    "no_upgrade": -0.1,
-    "win": 200.0,
-    "trash": 0.5,
-    "game_end": 0.01
+    "buy_upgrade": 0.0,
+    "no_upgrade": 0.0,
+    "win": 250.0,
+    "trash": -2.0,
+    "game_end": 0.05,
+    "net_profit_delta": 0.25,
+    "rating_delta": 20.0,
+    "final_score_delta": 0.05
   },
 
   "game_overrides": {

@@ -25,10 +25,20 @@ class TrainedAgent:
     def __init__(self, model_path: str):
         from stable_baselines3 import PPO
         self.model = PPO.load(model_path)
+        self.deterministic = True
 
     def predict(self, obs):
-        action, _ = self.model.predict(obs, deterministic=True)
+        action, _ = self.model.predict(obs, deterministic=self.deterministic)
         return int(action)
+
+    def get_action_probs(self, obs):
+        """Return action probabilities for the given observation."""
+        import torch as th
+        obs_t = th.as_tensor(obs).float().unsqueeze(0)
+        with th.no_grad():
+            dist = self.model.policy.get_distribution(obs_t)
+            probs = dist.distribution.probs[0].cpu().numpy()
+        return probs
 
 
 class AlgorithmAgent:

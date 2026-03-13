@@ -127,7 +127,105 @@ def save_run_config(save_path: str, cfg: dict) -> None:
 
 
 # ────────────────────────────────────────────────
-# Early Stopping (SB3 Callback)
+# SB3 학습 메트릭 한글 매핑
+# ────────────────────────────────────────────────
+METRIC_KR: dict[str, str] = {
+    "approx_kl":            "근사 KL 발산",
+    "clip_fraction":        "클리핑 비율",
+    "clip_range":           "클리핑 범위",
+    "entropy_loss":         "엔트로피 손실",
+    "explained_variance":   "설명 분산",
+    "learning_rate":        "학습률",
+    "loss":                 "총 손실",
+    "n_updates":            "업데이트 횟수",
+    "policy_gradient_loss": "정책 경사 손실",
+    "value_loss":           "가치 손실",
+    "fps":                  "초당 프레임",
+    "iterations":           "반복 횟수",
+    "time_elapsed":         "경과 시간(초)",
+    "total_timesteps":      "총 스텝 수",
+    "mean_reward":          "평균 보상",
+    "mean_ep_length":       "평균 에피소드 길이",
+}
+
+
+def print_metric_reference():
+    """학습 시작 시 메트릭 한글 참조표를 출력합니다."""
+    print("\n  ┌─ 메트릭 한글 참조 ─────────────────────────────┐")
+    for eng, kr in METRIC_KR.items():
+        print(f"  │  {eng:<24s} → {kr}")
+    print("  └───────────────────────────────────────────────┘\n")
+
+
+# ────────────────────────────────────────────────
+# Korean Eval + Early Stopping (SB3 Callback)
+# ────────────────────────────────────────────────
+class KoreanEvalStopCallback(BaseCallback):
+    """SB3 EvalCallback의 callback_after_eval로 사용.
+
+    매 평가마다 한글로 결과를 출력하고, Early Stopping을 수행합니다.
+    EvalCallback(verbose=0) 과 함께 사용하세요.
+    """
+
+    def __init__(self, patience: int = 50, min_delta: float = 1.0,
+                 verbose: int = 1):
+        super().__init__(verbose)
+        self.patience = patience
+        self.min_delta = min_delta
+        self.best_reward: float = -np.inf
+        self.wait: int = 0
+
+    def _on_step(self) -> bool:
+        parent = self.parent  # EvalCallback
+        if parent is None:
+            return True
+
+        mean_reward = parent.last_mean_reward
+        if mean_reward is None:
+            return True
+
+        # ── 한글 평가 결과 출력 ──
+        if self.verbose >= 1:
+            std_r = 0.0
+            mean_len, std_len = 0.0, 0.0
+            if hasattr(parent, "evaluations_results") and parent.evaluations_results:
+                last_ep = parent.evaluations_results[-1]
+                std_r = float(np.std(last_ep))
+            if hasattr(parent, "evaluations_length") and parent.evaluations_length:
+                last_len = parent.evaluations_length[-1]
+                mean_len = float(np.mean(last_len))
+                std_len = float(np.std(last_len))
+
+            print(f"\n  ── 평가 결과 (스텝 {self.num_timesteps:,}) ──────────")
+            print(f"  평균 보상 (mean_reward):     {mean_reward:>10.2f} ± {std_r:.2f}")
+            print(f"  에피소드 길이 (ep_length):    {mean_len:>10.0f} ± {std_len:.0f}")
+            # 개선 표시
+            if mean_reward > self.best_reward + self.min_delta:
+                print(f"  ★ 신기록! (이전 최고: {self.best_reward:.1f})")
+            else:
+                print(f"  미개선 ({self.wait + 1}/{self.patience})"
+                      f"  최고: {self.best_reward:.1f}")
+            print(f"  ─────────────────────────────────────────")
+
+        # ── Early Stopping 로직 ──
+        if mean_reward > self.best_reward + self.min_delta:
+            self.best_reward = mean_reward
+            self.wait = 0
+        else:
+            self.wait += 1
+
+        if self.wait >= self.patience:
+            if self.verbose >= 1:
+                print(f"\n  [조기종료] ★ 학습 조기 종료! "
+                      f"{self.patience}회 연속 개선 없음 "
+                      f"(최고={self.best_reward:.1f}, "
+                      f"스텝={self.num_timesteps})")
+            return False
+        return True
+
+
+# ────────────────────────────────────────────────
+# Early Stopping (SB3 Callback) – 기존 영문 버전 (호환용)
 # ────────────────────────────────────────────────
 class EarlyStopCallback(BaseCallback):
     """SB3 EvalCallback의 callback_after_eval로 사용하는 Early Stopping.

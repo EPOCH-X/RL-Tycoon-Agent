@@ -13,9 +13,11 @@ from gymnasium import spaces
 
 from config.settings import (
     TILE_SIZE, UI_HEIGHT, COLORS, ASSETS_DIR, NUM_ACTIONS,
+    INTERACT_RANGE, ACTION_INTERACT,
     load_json_config,
 )
 from core.shop import Shop
+from core.player import Player
 from core.customer import CustomerState
 from ai.reward import RewardCalculator
 
@@ -35,13 +37,55 @@ _STATE_ENC = {
 }
 
 
+def _norm_point(shop: Shop, x: float, y: float) -> tuple[float, float]:
+    map_px_w = max(1, shop.grid_width * TILE_SIZE)
+    map_px_h = max(1, shop.grid_height * TILE_SIZE)
+    return x / map_px_w, y / map_px_h
+
+
+def _get_primary_target_point(shop: Shop) -> tuple[float, float] | None:
+    px = shop.player.center_x
+    py = shop.player.center_y
+
+    if shop.player.has_food or shop.player.has_drink:
+        first = shop.player.first_carried
+        if first:
+            tid = first.get("table_id", -1)
+            for table in shop.tables:
+                if table.table_id == tid:
+                    return shop.get_table_interaction_point(table, px, py)
+        return None
+
+    if shop.player.has_order:
+        return shop.get_station_interaction_point(
+            shop.kitchen_counter_positions, px, py)
+
+    candidates: list[tuple[float, float]] = []
+    for table in shop.tables:
+        if (table.customer is not None
+                and table.customer.state == CustomerState.WAITING_TO_ORDER):
+            candidates.append(shop.get_table_interaction_point(table, px, py))
+
+    if shop.kitchen.ready:
+        candidates.append(
+            shop.get_station_interaction_point(
+                shop.kitchen_counter_positions, px, py)
+        )
+
+    if not candidates:
+        return None
+    return min(candidates, key=lambda pos: math.hypot(pos[0] - px, pos[1] - py))
+
+
 def _obs_size(shop: Shop) -> int:
     """Compute observation-vector length for a shop."""
     return (
         4                            # player x, y, facing, carry_type
         + 2                          # carry_table_id, carry_menu_id
-        + shop.max_tables * 4        # table: occupied, state, menu_id, patience
+        + shop.max_tables * 6        # table: x, y, occupied, state, menu_id, patience
         + 3                          # kitchen: cooking count, ready count, capacity ratio
+        + 6                          # kitchen/bar/trash landmark positions (3×2)
+        + 2                          # nearest-target direction vector (dx, dy)
         + 8                          # money_ratio, day_ratio, time_ratio, shop_rating,
                                      # can_upgrade, net_profit_ratio, employee_count, bar+delivery
     )
@@ -56,8 +100,8 @@ def build_observation(shop: Shop) -> np.ndarray:
     # ── Player (pixel-based, normalised) ─────────
     map_px_w = max(1, shop.grid_width * TILE_SIZE)
     map_px_h = max(1, shop.grid_height * TILE_SIZE)
-    obs[idx]     = shop.player.x / map_px_w
-    obs[idx + 1] = shop.player.y / map_px_h
+    obs[idx]     = shop.player.center_x / map_px_w
+    obs[idx + 1] = shop.player.center_y / map_px_h
     obs[idx + 2] = shop.player.facing / 3.0
     # carry type: 0=idle, 0.33=order, 0.66=food, 1.0=drink
     if shop.player.has_order:
@@ -79,18 +123,21 @@ def build_observation(shop: Shop) -> np.ndarray:
             obs[idx + 1] = mid / NUM_MENU
     idx += 2
 
-    # ── Tables (fixed-size: max_tables slots) ────
+    # ── Tables (fixed-size: max_tables slots, now with XY) ────
     for i in range(shop.max_tables):
         if i < len(shop.tables):
-            cust = shop.tables[i].customer
+            t = shop.tables[i]
+            tx, ty = shop.get_table_interaction_point(t)
+            obs[idx], obs[idx + 1] = _norm_point(shop, tx, ty)
+            cust = t.customer
             if cust is not None:
-                obs[idx]     = 1.0
-                obs[idx + 1] = _STATE_ENC.get(cust.state, 0.0)
+                obs[idx + 2] = 1.0
+                obs[idx + 3] = _STATE_ENC.get(cust.state, 0.0)
                 mi = cust.menu_item
                 if mi:
-                    obs[idx + 2] = MENU_IDS.get(mi["id"], 0) / NUM_MENU
-                obs[idx + 3] = cust.patience_ratio
-        idx += 4
+                    obs[idx + 4] = MENU_IDS.get(mi["id"], 0) / NUM_MENU
+                obs[idx + 5] = cust.patience_ratio
+        idx += 6
 
     # ── Kitchen ──────────────────────────────────
     obs[idx]     = shop.kitchen.num_cooking / max(1, shop.kitchen.capacity)
@@ -98,6 +145,28 @@ def build_observation(shop: Shop) -> np.ndarray:
     obs[idx + 2] = (shop.kitchen.num_cooking + len(shop.kitchen.ready)
                      ) / max(1, shop.kitchen.capacity)
     idx += 3
+
+    # ── Landmark positions (kitchen, bar, trash — averaged) ──
+    kx, ky = shop.get_station_interaction_point(shop.kitchen_counter_positions)
+    obs[idx], obs[idx + 1] = _norm_point(shop, kx, ky)
+    bx, by = shop.get_station_interaction_point(shop.bar_counter_positions)
+    obs[idx + 2], obs[idx + 3] = _norm_point(shop, bx, by)
+    tx, ty = shop.get_station_interaction_point(shop.trash_can_positions)
+    obs[idx + 4], obs[idx + 5] = _norm_point(shop, tx, ty)
+    idx += 6
+
+    # ── Nearest target direction vector (dx, dy) ─────────
+    px_norm = shop.player.center_x / map_px_w
+    py_norm = shop.player.center_y / map_px_h
+    target_dx, target_dy = 0.0, 0.0
+    target_point = _get_primary_target_point(shop)
+    if target_point is not None:
+        tx, ty = _norm_point(shop, *target_point)
+        target_dx = tx - px_norm
+        target_dy = ty - py_norm
+    obs[idx]     = np.clip(target_dx, -1.0, 1.0)
+    obs[idx + 1] = np.clip(target_dy, -1.0, 1.0)
+    idx += 2
 
     # ── Game state ───────────────────────────────
     obs[idx]     = min(1.0, shop.money / max(1, shop.target_money))
@@ -144,58 +213,106 @@ class TycoonEnv(gymnasium.Env):
         self.action_space = spaces.Discrete(NUM_ACTIONS)
         obs_len = _obs_size(self.shop)
         self.observation_space = spaces.Box(
-            low=0.0, high=1.0, shape=(obs_len,), dtype=np.float32)
+            low=-1.0, high=1.0, shape=(obs_len,), dtype=np.float32)
 
         self._screen = None
         self._renderer = None
         self._prev_served: int = 0
         self._prev_lost: int = 0
+        self._prev_potential: float = 0.0
+        self._prev_net_profit: float = 0.0
+        self._prev_rating: float = 0.0
+        self._prev_final_score: float = 0.0
 
-    # ── Dense reward shaping ─────────────────────
-    def _dense_shaping(self) -> float:
-        """Proximity-based dense reward to guide agent toward useful tasks."""
+    # ── Potential-based reward shaping ────────────
+    def _calc_potential(self) -> float:
+        """State potential for reward shaping.
+
+        Returns a value in [-1, 0] proportional to how close the player
+        is to their current task objective.  Higher = closer to target.
+        """
         shop = self.shop
-        px, py = shop.player.x, shop.player.y
-        bonus = 0.0
+        px, py = shop.player.center_x, shop.player.center_y
         map_diag = math.hypot(shop.grid_width * TILE_SIZE,
                               shop.grid_height * TILE_SIZE)
         if map_diag == 0:
             return 0.0
+        target_point = _get_primary_target_point(shop)
+        if target_point is not None:
+            d = math.hypot(px - target_point[0], py - target_point[1])
+            return -d / map_diag
+        return 0.0
 
-        # 1) Idle (not carrying) → reward proximity to nearest waiting customer
-        if shop.player.is_idle:
-            best_dist = map_diag
-            for t in shop.tables:
-                if (t.customer is not None
-                        and t.customer.state == CustomerState.WAITING_TO_ORDER):
-                    d = math.hypot(px - t.center_x, py - t.center_y)
-                    best_dist = min(best_dist, d)
-            if best_dist < map_diag:
-                bonus += 0.3 * (1.0 - best_dist / map_diag)
+    def _dense_shaping(self) -> float:
+        """Potential-based shaping: F = γ·φ(s') - φ(s).
 
-        # 2) Carrying order → reward proximity to kitchen
-        elif shop.player.has_order:
-            if shop.kitchen_counter_positions:
-                best_dist = map_diag
-                for gx, gy in shop.kitchen_counter_positions:
-                    kx = gx * TILE_SIZE + TILE_SIZE / 2
-                    ky = gy * TILE_SIZE + TILE_SIZE / 2
-                    d = math.hypot(px - kx, py - ky)
-                    best_dist = min(best_dist, d)
-                bonus += 0.3 * (1.0 - best_dist / map_diag)
+        Only rewards *change* in proximity — the agent cannot hack this
+        by standing still near a target.
+        """
+        new_potential = self._calc_potential()
+        F = 0.99 * new_potential - self._prev_potential
+        self._prev_potential = new_potential
+        return F * 3.0
 
-        # 3) Carrying food → reward proximity to target table
-        elif shop.player.has_food:
+    def _auto_face_nearest(self):
+        """Face the player toward the nearest interactable within range.
+
+        Called before INTERACT so the agent doesn't need to learn facing —
+        a critical difficulty reduction for RL.
+        """
+        shop = self.shop
+        px = shop.player.center_x
+        py = shop.player.center_y
+        best_dist = INTERACT_RANGE * 1.5
+        best_dx, best_dy = 0.0, 0.0
+        found = False
+
+        def consider(target_x: float, target_y: float):
+            nonlocal best_dist, best_dx, best_dy, found
+            d = math.hypot(target_x - px, target_y - py)
+            if d < best_dist:
+                best_dist = d
+                best_dx = target_x - px
+                best_dy = target_y - py
+                found = True
+
+        if shop.player.has_food or shop.player.has_drink:
             first = shop.player.first_carried
             if first:
                 tid = first.get("table_id", -1)
-                for t in shop.tables:
-                    if t.table_id == tid:
-                        d = math.hypot(px - t.center_x, py - t.center_y)
-                        bonus += 0.3 * (1.0 - d / map_diag)
+                for table in shop.tables:
+                    if table.table_id == tid:
+                        consider(table.center_x, table.center_y)
                         break
+        elif shop.player.has_order:
+            for gx, gy in shop.kitchen_counter_positions:
+                consider(gx * TILE_SIZE + TILE_SIZE / 2,
+                         gy * TILE_SIZE + TILE_SIZE / 2)
+        else:
+            for table in shop.tables:
+                if (table.customer is not None
+                        and table.customer.state == CustomerState.WAITING_TO_ORDER):
+                    consider(table.center_x, table.center_y)
+            if shop.kitchen.ready:
+                for gx, gy in shop.kitchen_counter_positions:
+                    consider(gx * TILE_SIZE + TILE_SIZE / 2,
+                             gy * TILE_SIZE + TILE_SIZE / 2)
+            if shop.bartender_hired and shop.bar.has_ready:
+                for gx, gy in shop.bar_counter_positions:
+                    consider(gx * TILE_SIZE + TILE_SIZE / 2,
+                             gy * TILE_SIZE + TILE_SIZE / 2)
+            if shop.player.carrying:
+                for gx, gy in shop.trash_can_positions:
+                    consider(gx * TILE_SIZE + TILE_SIZE / 2,
+                             gy * TILE_SIZE + TILE_SIZE / 2)
 
-        return bonus
+        if found:
+            if abs(best_dx) > abs(best_dy):
+                shop.player.facing = (Player.FACING_RIGHT if best_dx > 0
+                                      else Player.FACING_LEFT)
+            else:
+                shop.player.facing = (Player.FACING_DOWN if best_dy > 0
+                                      else Player.FACING_UP)
 
     # ── Gymnasium API ────────────────────────────
     def reset(self, *, seed=None, options=None):
@@ -203,15 +320,33 @@ class TycoonEnv(gymnasium.Env):
         self.shop.reset()
         self._prev_served = 0
         self._prev_lost = 0
+        self._prev_potential = self._calc_potential()
+        self._prev_net_profit = float(self.shop.net_profit)
+        self._prev_rating = float(self.shop.shop_rating)
+        self._prev_final_score = float(self.shop.final_score)
         return build_observation(self.shop), {}
 
     def step(self, action):
-        events = self.shop.step(int(action))
-        # Auto-select traits for RL agent
+        action = int(action)
+
+        # Auto-face nearest interactable on INTERACT
+        if action == ACTION_INTERACT:
+            self._auto_face_nearest()
+
+        events = self.shop.step(action)
         self.shop.auto_select_trait()
+        net_profit_delta = float(self.shop.net_profit) - self._prev_net_profit
+        rating_delta = float(self.shop.shop_rating) - self._prev_rating
+        final_score_delta = float(self.shop.final_score) - self._prev_final_score
+        if abs(net_profit_delta) > 1e-6:
+            events.append(("net_profit_delta", net_profit_delta))
+        if abs(rating_delta) > 1e-6:
+            events.append(("rating_delta", rating_delta))
+        if abs(final_score_delta) > 1e-6:
+            events.append(("final_score_delta", final_score_delta))
         reward = self._reward_calc(events)
 
-        # Dense shaping: proximity bonus
+        # Potential-based shaping (replaces old absolute proximity)
         reward += self._dense_shaping()
 
         obs = build_observation(self.shop)
@@ -231,6 +366,9 @@ class TycoonEnv(gymnasium.Env):
         }
         self._prev_served = self.shop.customers_served
         self._prev_lost = self.shop.customers_lost
+        self._prev_net_profit = float(self.shop.net_profit)
+        self._prev_rating = float(self.shop.shop_rating)
+        self._prev_final_score = float(self.shop.final_score)
         return obs, reward, terminated, truncated, info
 
     def render(self):
