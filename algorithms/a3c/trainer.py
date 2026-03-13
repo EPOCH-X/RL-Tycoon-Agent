@@ -238,23 +238,19 @@ class A3CTrainer(BaseTrainer):
         print(f"  [A3C-GPU (비동기 액터-크리틱)] {n_envs}개 병렬 환경으로 학습 시작, 디바이스: {self.device}")
 
         while total_steps < self._timesteps:
-            # Collect n_steps of experience
+            # ── 1) Rollout 수집 (no_grad – 행동 선택만) ──
             mb_obs, mb_actions, mb_rewards, mb_dones = [], [], [], []
-            mb_log_probs, mb_values, mb_entropies = [], [], []
 
             for _ in range(n_steps):
                 obs_t = torch.FloatTensor(obs_arr).to(self.device)
                 with torch.no_grad():
-                    logits, values = self.global_model(obs_t)
+                    logits, _ = self.global_model(obs_t)
                     probs = F.softmax(logits, dim=-1)
                     dist = torch.distributions.Categorical(probs)
                     actions = dist.sample()
 
                 mb_obs.append(obs_t)
                 mb_actions.append(actions)
-                mb_values.append(values.squeeze(-1))
-                mb_log_probs.append(dist.log_prob(actions))
-                mb_entropies.append(dist.entropy())
 
                 actions_np = actions.cpu().numpy()
                 obs_arr, rewards, dones, infos = vec_env.step(actions_np)
@@ -265,7 +261,22 @@ class A3CTrainer(BaseTrainer):
                 total_steps += n_envs
                 episode_count += sum(dones)
 
-            # Compute returns
+            # ── 2) 그래디언트 계산을 위해 forward pass 재실행 ──
+            all_obs = torch.stack(mb_obs)              # [n_steps, n_envs, obs_dim]
+            all_actions = torch.stack(mb_actions)      # [n_steps, n_envs]
+
+            flat_obs = all_obs.reshape(-1, all_obs.shape[-1])
+            logits_flat, values_flat = self.global_model(flat_obs)
+
+            logits_2d = logits_flat.reshape(n_steps, n_envs, -1)
+            values = values_flat.squeeze(-1).reshape(n_steps, n_envs)
+
+            probs_2d = F.softmax(logits_2d, dim=-1)
+            dist_2d = torch.distributions.Categorical(probs_2d)
+            log_probs = dist_2d.log_prob(all_actions)   # [n_steps, n_envs]
+            entropies = dist_2d.entropy()               # [n_steps, n_envs]
+
+            # ── 3) Returns 계산 (no_grad) ──
             with torch.no_grad():
                 last_obs_t = torch.FloatTensor(obs_arr).to(self.device)
                 _, last_values = self.global_model(last_obs_t)
@@ -277,15 +288,13 @@ class A3CTrainer(BaseTrainer):
                 R = mb_rewards[t_idx] + gamma * R * (1.0 - mb_dones[t_idx])
                 returns.insert(0, R)
 
-            returns = torch.stack(returns)          # [n_steps, n_envs]
-            values = torch.stack(mb_values)         # [n_steps, n_envs]
-            log_probs = torch.stack(mb_log_probs)   # [n_steps, n_envs]
-            entropies = torch.stack(mb_entropies)   # [n_steps, n_envs]
+            returns = torch.stack(returns).detach()    # [n_steps, n_envs]
 
+            # ── 4) Loss 계산 & 역전파 ──
             advantages = returns - values.detach()
 
             policy_loss = -(log_probs * advantages).mean()
-            value_loss = F.mse_loss(values, returns.detach())
+            value_loss = F.mse_loss(values, returns)
             entropy_loss = -entropies.mean()
 
             loss = policy_loss + value_loss_coef * value_loss + entropy_coef * entropy_loss

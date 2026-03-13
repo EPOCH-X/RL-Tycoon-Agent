@@ -18,6 +18,7 @@ class ActorCritic(nn.Module):
         hidden_sizes = hidden_sizes or [128, 128]
         act_fn = {"relu": nn.ReLU, "tanh": nn.Tanh, "elu": nn.ELU}.get(
             activation, nn.ReLU)
+        self._act_name = activation   # _init_weights에서 gain 결정용
 
         # Shared feature extractor
         layers: list[nn.Module] = []
@@ -36,10 +37,23 @@ class ActorCritic(nn.Module):
         self._init_weights()
 
     def _init_weights(self):
-        for m in self.modules():
+        """레이어별 적절한 gain 으로 초기화.
+
+        히든 레이어: gain=√2 (ReLU 표준)
+        정책 헤드:   gain=0.01 (초기 탐색 균등)
+        가치 헤드:   gain=1.0
+        """
+        act_gains = {"relu": 2**0.5, "tanh": 1.0, "elu": 1.0}
+        hidden_gain = act_gains.get(
+            getattr(self, '_act_name', 'relu'), 2**0.5)
+        for m in self.shared.modules():
             if isinstance(m, nn.Linear):
-                nn.init.orthogonal_(m.weight, gain=0.01)
+                nn.init.orthogonal_(m.weight, gain=hidden_gain)
                 nn.init.zeros_(m.bias)
+        nn.init.orthogonal_(self.policy_head.weight, gain=0.01)
+        nn.init.zeros_(self.policy_head.bias)
+        nn.init.orthogonal_(self.value_head.weight, gain=1.0)
+        nn.init.zeros_(self.value_head.bias)
 
     def forward(self, x: torch.Tensor):
         features = self.shared(x)

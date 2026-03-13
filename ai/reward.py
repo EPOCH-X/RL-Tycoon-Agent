@@ -26,12 +26,12 @@ DEFAULT_WEIGHTS: dict[str, float] = {
     "serve_drink":        8.0,
     "customer_payment":   1.0,
     # ── 페널티 ──
-    "lost_customer":      0.0,    # 초기엔 제어 불가 → 노이즈만 추가
+    "lost_customer":     -5.0,    # 손님 이탈 페널티 (서비스 유도)
     "wrong_table":       -2.0,
     "trash":             -0.5,
     "blocked_move":      -0.05,
-    "idle_penalty":      -0.08,   # WAIT 액션 시 매 스텝
-    "time_penalty":       0.0,    # 노이즈 제거
+    "idle_penalty":      -0.1,    # WAIT 액션 시 매 스텝
+    "time_penalty":      -0.02,   # 매 스텝 시간 압박
     # ── 업그레이드 ──
     "buy_upgrade":        2.0,
     "no_upgrade":         0.0,

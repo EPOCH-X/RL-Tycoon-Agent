@@ -413,6 +413,14 @@ class Shop:
     def step(self, action: int) -> list[tuple[str, float]]:
         """Full step for RL: movement + game logic.
 
+        사람 모드와의 핵심 차이를 보정합니다:
+        - 사람: tick()에서 매 프레임 이동 + update()에서 상호작용 → 동시 가능
+        - RL: 매 스텝 행동 1개만 → 이동과 상호작용을 동시에 할 수 없음
+
+        보정: 이동 액션 후 상호작용 가능한 대상이 범위 내에 있으면
+        자동으로 상호작용을 시도합니다 (사람이 이동하면서 스페이스를
+        누르는 것과 동일한 효과).
+
         Returns a list of ``(event_name, value)`` tuples that occurred
         during this step.  The caller (e.g. ``ai.reward.RewardCalculator``)
         converts these events into a scalar reward using configurable weights.
@@ -424,6 +432,12 @@ class Shop:
 
         if action in (ACTION_UP, ACTION_DOWN, ACTION_LEFT, ACTION_RIGHT):
             self._move_player_action(action, dt)
+            # ── 이동 후 자동 상호작용 (사람 모드 동시입력 보정) ──
+            # 이동 방향에 상호작용 가능한 대상이 있으면 자동 시도
+            auto_events = self._try_auto_interact()
+            if auto_events:
+                # 이미 상호작용 완료 → ACTION_NONE으로 나머지 로직만 실행
+                return self._step_inner(ACTION_NONE, dt, extra_events=auto_events)
 
         return self._step_inner(action, dt)
 
@@ -436,8 +450,10 @@ class Shop:
             return []
         return self._step_inner(action, STEP_INTERVAL)
 
-    def _step_inner(self, action: int, dt: float) -> list[tuple[str, float]]:
-        events: list[tuple[str, float]] = []
+    def _step_inner(self, action: int, dt: float,
+                    extra_events: list[tuple[str, float]] | None = None,
+                    ) -> list[tuple[str, float]]:
+        events: list[tuple[str, float]] = list(extra_events) if extra_events else []
 
         # 1) Interaction / upgrade
         if action == ACTION_INTERACT:
@@ -587,6 +603,93 @@ class Shop:
             if self.layout[gy][gx] != 0:
                 return False
         return True
+
+    # ═══════════════════════════════════════════════
+    #  Auto-Interact (RL 이동 후 자동 상호작용)
+    # ═══════════════════════════════════════════════
+    def _try_auto_interact(self) -> list[tuple[str, float]]:
+        """이동 후 유효한 상호작용 대상이 범위 내에 있으면 자동 실행.
+
+        사람 모드에서는 이동키를 누른 채 스페이스를 누를 수 있지만,
+        RL에서는 매 스텝 액션 1개만 선택 가능하여 불리합니다.
+
+        이 메서드는 이동 방향(facing)에 상호작용 가능한 유효 대상이
+        있을 때만 자동으로 상호작용을 시도하며, 의미 없는 상호작용
+        (빈 테이블, 이미 주문받은 테이블 등)은 무시합니다.
+        """
+        px = self.player.center_x
+        py = self.player.center_y
+        fdx, fdy = Player.DIRECTION_VEC[self.player.facing]
+
+        # 플레이어 상태에 따라 유효한 상호작용인지 사전 검증
+        has_order = self.player.has_order
+        has_food = self.player.has_food
+        has_drink = self.player.has_drink
+        is_idle = self.player.is_idle
+
+        # 테이블 확인
+        for table in self.tables:
+            dist = math.hypot(table.center_x - px, table.center_y - py)
+            if dist > INTERACT_RANGE:
+                continue
+            if dist > 1e-3:
+                dirx = (table.center_x - px) / dist
+                diry = (table.center_y - py) / dist
+                if dirx * fdx + diry * fdy < 0.1:
+                    continue
+            cust = table.customer
+            if cust is None:
+                continue
+            # 유효한 상호작용만: 주문 대기 + 아이들, 또는 음식/음료 서빙
+            if (is_idle and cust.state == CustomerState.WAITING_TO_ORDER):
+                return self._interact_table(table)
+            if has_food:
+                foods = [c for c in self.player.carrying
+                         if c["type"] == "food" and c["table_id"] == table.table_id]
+                if foods and cust.state == CustomerState.ORDER_TAKEN:
+                    return self._interact_table(table)
+            if has_drink:
+                drinks = [c for c in self.player.carrying
+                          if c["type"] == "drink" and c["table_id"] == table.table_id]
+                if drinks and cust.state in (CustomerState.ORDER_TAKEN,
+                                              CustomerState.EATING):
+                    return self._interact_table(table)
+
+        # 주방 카운터 확인 (주문 전달 또는 음식 수거)
+        for kpos in self.kitchen_counter_positions:
+            kcx = kpos[0] * TILE_SIZE + TILE_SIZE / 2
+            kcy = kpos[1] * TILE_SIZE + TILE_SIZE / 2
+            dist = math.hypot(kcx - px, kcy - py)
+            if dist > INTERACT_RANGE:
+                continue
+            if dist > 1e-3:
+                dirx = (kcx - px) / dist
+                diry = (kcy - py) / dist
+                if dirx * fdx + diry * fdy < 0.1:
+                    continue
+            # 주문 전달 또는 음식 수거가 가능할 때만
+            if has_order or (is_idle and self.kitchen.ready):
+                return self._interact_kitchen()
+            if not has_order and not has_food and not has_drink and self.kitchen.ready:
+                return self._interact_kitchen()
+
+        # 바 카운터 확인 (음료 수거)
+        if self.bartender_hired:
+            for bpos in self.bar_counter_positions:
+                bcx = bpos[0] * TILE_SIZE + TILE_SIZE / 2
+                bcy = bpos[1] * TILE_SIZE + TILE_SIZE / 2
+                dist = math.hypot(bcx - px, bcy - py)
+                if dist > INTERACT_RANGE:
+                    continue
+                if dist > 1e-3:
+                    dirx = (bcx - px) / dist
+                    diry = (bcy - py) / dist
+                    if dirx * fdx + diry * fdy < 0.1:
+                        continue
+                if is_idle and self.bar.has_ready:
+                    return self._interact_bar()
+
+        return []
 
     # ═══════════════════════════════════════════════
     #  Distance-based Interaction

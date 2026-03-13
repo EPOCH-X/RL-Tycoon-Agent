@@ -315,14 +315,16 @@ class TycoonEnv(gymnasium.Env):
         return -d / map_diag
 
     def _dense_shaping(self) -> float:
-        """Potential-based shaping: F = γ·φ(s') - φ(s).
+        """Potential-based shaping: F = φ(s') - φ(s).
 
         Guides the agent toward the nearest task-relevant target.
+        γ=1.0 within episode to prevent stationary agents from
+        accumulating spurious positive reward (0.99 leak bug fix).
         Capped per-step to prevent accumulation from dominating
         the actual gameplay rewards (service chain).
         """
         new_potential = self._calc_potential()
-        F = 0.99 * new_potential - self._prev_potential
+        F = new_potential - self._prev_potential   # γ=1.0 → 정지 시 F=0
         self._prev_potential = new_potential
         # Scale=3.0, cap ±1.0 → strong guidance, bounded per step
         return max(-1.0, min(1.0, F * 3.0))
