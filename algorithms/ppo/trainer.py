@@ -13,6 +13,7 @@ from algorithms.base import BaseTrainer
 from algorithms.common import (
     load_algo_config, make_vec_env, build_policy_kwargs,
     save_run_config, get_sb3_device, KoreanEvalStopCallback,
+    TrainingDiagnosticsCallback,
     print_metric_reference,
 )
 
@@ -91,7 +92,12 @@ class PPOTrainer(BaseTrainer):
     def train(self) -> dict[str, Any]:
         assert self.model is not None, "call build() first"
         print_metric_reference()
-        self.model.learn(total_timesteps=self._timesteps, callback=self._eval_cb)
+        diag_cb = TrainingDiagnosticsCallback(
+            print_every_episodes=64,
+            min_timestep_gap=max(20000, self.cfg.get("training", {}).get("eval_freq", 5000) * 4),
+            verbose=1,
+        )
+        self.model.learn(total_timesteps=self._timesteps, callback=[self._eval_cb, diag_cb])
         self.save(os.path.join(self.save_path, "final_model"))
         self._cleanup()
         return {"algorithm": "PPO", "timesteps": self._timesteps,

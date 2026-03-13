@@ -4,7 +4,7 @@
   "policy": "MlpPolicy",
 
   "training": {
-    "total_timesteps": 200000,
+    "total_timesteps": 300000,
     "n_workers": 8,
     "seed": 42,
     "eval_freq": 5000,
@@ -12,7 +12,7 @@
   },
 
   "hyperparameters": {
-    "learning_rate": 1e-4,
+    "learning_rate": 3e-4,
     "gamma": 0.99,
     "gae_lambda": 0.95,
     "entropy_coef": 0.01,
@@ -28,21 +28,24 @@
 
   "reward_shaping": {
     "take_order": 8.0,
+    "submit_kitchen": 5.0,
+    "pickup_food": 5.0,
     "serve_food": 15.0,
-    "submit_kitchen": 4.0,
-    "pickup_food": 3.0,
-    "pickup_drink": 2.0,
-    "serve_drink": 6.0,
-    "customer_payment": 0.25,
-    "lost_customer": -15.0,
+    "pickup_drink": 3.0,
+    "serve_drink": 8.0,
+    "customer_payment": 1.0,
+    "lost_customer": 0.0,
     "wrong_table": -2.0,
-    "buy_upgrade": 0.0,
+    "trash": -0.5,
+    "blocked_move": -0.05,
+    "idle_penalty": -0.08,
+    "time_penalty": 0.0,
+    "buy_upgrade": 2.0,
     "no_upgrade": 0.0,
-    "win": 250.0,
-    "trash": -2.0,
-    "game_end": 0.05,
-    "net_profit_delta": 0.25,
-    "rating_delta": 20.0,
+    "win": 200.0,
+    "game_end": 0.01,
+    "net_profit_delta": 0.2,
+    "rating_delta": 10.0,
     "final_score_delta": 0.05
   },
 

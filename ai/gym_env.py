@@ -13,7 +13,7 @@ from gymnasium import spaces
 
 from config.settings import (
     TILE_SIZE, UI_HEIGHT, COLORS, ASSETS_DIR, NUM_ACTIONS,
-    INTERACT_RANGE, ACTION_INTERACT,
+    INTERACT_RANGE, ACTION_INTERACT, ACTION_NONE,
     load_json_config,
 )
 from core.shop import Shop
@@ -77,11 +77,51 @@ def _get_primary_target_point(shop: Shop) -> tuple[float, float] | None:
     return min(candidates, key=lambda pos: math.hypot(pos[0] - px, pos[1] - py))
 
 
+def _get_primary_target_signature(shop: Shop) -> tuple[str, int] | None:
+    if shop.player.has_food or shop.player.has_drink:
+        first = shop.player.first_carried
+        if first:
+            return ("table", int(first.get("table_id", -1)))
+        return None
+
+    if shop.player.has_order:
+        return ("kitchen", 0)
+
+    best_table = None
+    best_dist = float("inf")
+    px = shop.player.center_x
+    py = shop.player.center_y
+    for table in shop.tables:
+        if (table.customer is not None
+                and table.customer.state == CustomerState.WAITING_TO_ORDER):
+            tx, ty = shop.get_table_interaction_point(table, px, py)
+            dist = math.hypot(tx - px, ty - py)
+            if dist < best_dist:
+                best_dist = dist
+                best_table = table.table_id
+
+    if best_table is not None:
+        return ("table", int(best_table))
+    if shop.kitchen.ready:
+        return ("kitchen", 0)
+    return None
+
+
+def _target_in_range(shop: Shop) -> bool:
+    target = _get_primary_target_point(shop)
+    if target is None:
+        return False
+    px = shop.player.center_x
+    py = shop.player.center_y
+    return math.hypot(target[0] - px, target[1] - py) <= INTERACT_RANGE * 0.9
+
+
 def _obs_size(shop: Shop) -> int:
     """Compute observation-vector length for a shop."""
     return (
         4                            # player x, y, facing, carry_type
         + 2                          # carry_table_id, carry_menu_id
+        + 4                          # can_move: up, down, left, right
         + shop.max_tables * 6        # table: x, y, occupied, state, menu_id, patience
         + 3                          # kitchen: cooking count, ready count, capacity ratio
         + 6                          # kitchen/bar/trash landmark positions (3×2)
@@ -123,6 +163,19 @@ def build_observation(shop: Shop) -> np.ndarray:
             obs[idx + 1] = mid / NUM_MENU
     idx += 2
 
+    # ── Local move feasibility (collision-aware) ─────────
+    move_step = shop.player.speed * 0.2
+    candidate_moves = [
+        (0.0, -move_step),
+        (0.0, move_step),
+        (-move_step, 0.0),
+        (move_step, 0.0),
+    ]
+    for move_idx, (dx, dy) in enumerate(candidate_moves):
+        if shop._can_move_to(shop.player.x + dx, shop.player.y + dy):
+            obs[idx + move_idx] = 1.0
+    idx += 4
+
     # ── Tables (fixed-size: max_tables slots, now with XY) ────
     for i in range(shop.max_tables):
         if i < len(shop.tables):
@@ -160,6 +213,11 @@ def build_observation(shop: Shop) -> np.ndarray:
     py_norm = shop.player.center_y / map_px_h
     target_dx, target_dy = 0.0, 0.0
     target_point = _get_primary_target_point(shop)
+    if target_point is None and shop.tables:
+        # Fallback: direction toward average table position
+        xs = [shop.get_table_interaction_point(t)[0] for t in shop.tables]
+        ys = [shop.get_table_interaction_point(t)[1] for t in shop.tables]
+        target_point = (sum(xs) / len(xs), sum(ys) / len(ys))
     if target_point is not None:
         tx, ty = _norm_point(shop, *target_point)
         target_dx = tx - px_norm
@@ -223,6 +281,11 @@ class TycoonEnv(gymnasium.Env):
         self._prev_net_profit: float = 0.0
         self._prev_rating: float = 0.0
         self._prev_final_score: float = 0.0
+        self._prev_target_signature: tuple[str, int] | None = None
+        self._prev_target_in_range: bool = False
+        self._episode_event_totals: dict[str, float] = {}
+        self._episode_reward_totals: dict[str, float] = {}
+        self._episode_steps: int = 0
 
     # ── Potential-based reward shaping ────────────
     def _calc_potential(self) -> float:
@@ -230,6 +293,7 @@ class TycoonEnv(gymnasium.Env):
 
         Returns a value in [-1, 0] proportional to how close the player
         is to their current task objective.  Higher = closer to target.
+        When no task target exists, guides toward the map center.
         """
         shop = self.shop
         px, py = shop.player.center_x, shop.player.center_y
@@ -238,21 +302,30 @@ class TycoonEnv(gymnasium.Env):
         if map_diag == 0:
             return 0.0
         target_point = _get_primary_target_point(shop)
-        if target_point is not None:
-            d = math.hypot(px - target_point[0], py - target_point[1])
-            return -d / map_diag
-        return 0.0
+        if target_point is None:
+            # Fallback: guide toward average of all table interaction points
+            # so the agent naturally stays near the service area.
+            if shop.tables:
+                xs = [shop.get_table_interaction_point(t)[0] for t in shop.tables]
+                ys = [shop.get_table_interaction_point(t)[1] for t in shop.tables]
+                target_point = (sum(xs) / len(xs), sum(ys) / len(ys))
+            else:
+                return 0.0
+        d = math.hypot(px - target_point[0], py - target_point[1])
+        return -d / map_diag
 
     def _dense_shaping(self) -> float:
         """Potential-based shaping: F = γ·φ(s') - φ(s).
 
-        Only rewards *change* in proximity — the agent cannot hack this
-        by standing still near a target.
+        Guides the agent toward the nearest task-relevant target.
+        Capped per-step to prevent accumulation from dominating
+        the actual gameplay rewards (service chain).
         """
         new_potential = self._calc_potential()
         F = 0.99 * new_potential - self._prev_potential
         self._prev_potential = new_potential
-        return F * 3.0
+        # Scale=3.0, cap ±1.0 → strong guidance, bounded per step
+        return max(-1.0, min(1.0, F * 3.0))
 
     def _auto_face_nearest(self):
         """Face the player toward the nearest interactable within range.
@@ -324,6 +397,11 @@ class TycoonEnv(gymnasium.Env):
         self._prev_net_profit = float(self.shop.net_profit)
         self._prev_rating = float(self.shop.shop_rating)
         self._prev_final_score = float(self.shop.final_score)
+        self._prev_target_signature = _get_primary_target_signature(self.shop)
+        self._prev_target_in_range = _target_in_range(self.shop)
+        self._episode_event_totals = {}
+        self._episode_reward_totals = {}
+        self._episode_steps = 0
         return build_observation(self.shop), {}
 
     def step(self, action):
@@ -333,8 +411,33 @@ class TycoonEnv(gymnasium.Env):
         if action == ACTION_INTERACT:
             self._auto_face_nearest()
 
+        before_x = float(self.shop.player.x)
+        before_y = float(self.shop.player.y)
+
         events = self.shop.step(action)
         self.shop.auto_select_trait()
+
+        # ── time_penalty: 매 스텝 소량 비용 (긴박감 유도) ──
+        events.append(("time_penalty", 1.0))
+        # ── idle_penalty: WAIT 액션 시 추가 페널티 ──
+        if action == ACTION_NONE:
+            events.append(("idle_penalty", 1.0))
+
+        if action in (0, 1, 2, 3):
+            moved_dist = math.hypot(self.shop.player.x - before_x,
+                                    self.shop.player.y - before_y)
+            if moved_dist < 1e-3:
+                events.append(("blocked_move", 1.0))
+        current_target_signature = _get_primary_target_signature(self.shop)
+        current_target_in_range = _target_in_range(self.shop)
+        if (current_target_signature is not None
+                and current_target_in_range
+                and (current_target_signature != self._prev_target_signature
+                     or not self._prev_target_in_range)):
+            self._episode_event_totals["target_ready"] = (
+                self._episode_event_totals.get("target_ready", 0.0) + 1.0
+            )
+
         net_profit_delta = float(self.shop.net_profit) - self._prev_net_profit
         rating_delta = float(self.shop.shop_rating) - self._prev_rating
         final_score_delta = float(self.shop.final_score) - self._prev_final_score
@@ -344,10 +447,18 @@ class TycoonEnv(gymnasium.Env):
             events.append(("rating_delta", rating_delta))
         if abs(final_score_delta) > 1e-6:
             events.append(("final_score_delta", final_score_delta))
-        reward = self._reward_calc(events)
+        reward, reward_breakdown, event_values = self._reward_calc.details(events)
 
         # Potential-based shaping (replaces old absolute proximity)
-        reward += self._dense_shaping()
+        dense_reward = self._dense_shaping()
+        reward += dense_reward
+        reward_breakdown["dense_shaping"] = reward_breakdown.get("dense_shaping", 0.0) + dense_reward
+
+        self._episode_steps += 1
+        for name, value in event_values.items():
+            self._episode_event_totals[name] = self._episode_event_totals.get(name, 0.0) + value
+        for name, value in reward_breakdown.items():
+            self._episode_reward_totals[name] = self._episode_reward_totals.get(name, 0.0) + value
 
         obs = build_observation(self.shop)
         terminated = self.shop.done
@@ -363,12 +474,27 @@ class TycoonEnv(gymnasium.Env):
             "final_score": self.shop.final_score,
             "won": self.shop.won,
             "tables_active": len(self.shop.tables),
+            "last_events": dict(event_values),
+            "last_reward_breakdown": dict(reward_breakdown),
         }
+        if terminated or truncated:
+            info["episode_summary"] = {
+                "steps": self._episode_steps,
+                "customers_served": self.shop.customers_served,
+                "customers_lost": self.shop.customers_lost,
+                "net_profit": float(self.shop.net_profit),
+                "shop_rating": float(self.shop.shop_rating),
+                "final_score": float(self.shop.final_score),
+                "event_totals": dict(self._episode_event_totals),
+                "reward_totals": dict(self._episode_reward_totals),
+            }
         self._prev_served = self.shop.customers_served
         self._prev_lost = self.shop.customers_lost
         self._prev_net_profit = float(self.shop.net_profit)
         self._prev_rating = float(self.shop.shop_rating)
         self._prev_final_score = float(self.shop.final_score)
+        self._prev_target_signature = current_target_signature
+        self._prev_target_in_range = current_target_in_range
         return obs, reward, terminated, truncated, info
 
     def render(self):

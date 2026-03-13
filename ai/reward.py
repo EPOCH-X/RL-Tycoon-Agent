@@ -8,23 +8,39 @@ Team members can tune reward values **without touching game code**.
 """
 
 # Default reward weights (fallback when config is absent)
+#
+# 설계 원칙 (타이쿤·경영 시뮬레이션):
+#   1. 서비스 체인 완료에 비례하는 보상 (take→submit→pickup→serve)
+#   2. 아이들/대기 페널티로 행동을 유도
+#   3. time_penalty로 긴박감 부여 (빠른 서비스 = 더 높은 보상)
+#   4. lost_customer는 의미있지만 압도적이지 않게
+#   5. 보상 스케일을 작게 유지 → 학습 안정성 향상
 DEFAULT_WEIGHTS: dict[str, float] = {
+    # ── 서비스 체인 (핵심 게임플레이 루프) ──
+    # take_order(8) → submit_kitchen(5) → pickup_food(5) → serve_food(15) = 33/고객
     "take_order":         8.0,
+    "submit_kitchen":     5.0,
+    "pickup_food":        5.0,
     "serve_food":        15.0,
-    "submit_kitchen":     4.0,
-    "pickup_food":        3.0,
-    "pickup_drink":       2.0,
-    "serve_drink":        6.0,
-    "customer_payment":   0.25,
-    "lost_customer":    -15.0,
+    "pickup_drink":       3.0,
+    "serve_drink":        8.0,
+    "customer_payment":   1.0,
+    # ── 페널티 ──
+    "lost_customer":      0.0,    # 초기엔 제어 불가 → 노이즈만 추가
     "wrong_table":       -2.0,
-    "buy_upgrade":        0.0,
+    "trash":             -0.5,
+    "blocked_move":      -0.05,
+    "idle_penalty":      -0.08,   # WAIT 액션 시 매 스텝
+    "time_penalty":       0.0,    # 노이즈 제거
+    # ── 업그레이드 ──
+    "buy_upgrade":        2.0,
     "no_upgrade":         0.0,
-    "win":              250.0,
-    "trash":             -2.0,
-    "game_end":           0.05,
-    "net_profit_delta":   0.25,
-    "rating_delta":      20.0,
+    # ── 게임 마일스톤 ──
+    "win":              200.0,
+    "game_end":           0.01,
+    # ── 지속적 진행 지표 ──
+    "net_profit_delta":   0.2,
+    "rating_delta":      10.0,
     "final_score_delta":  0.05,
 }
 
@@ -50,8 +66,18 @@ class RewardCalculator:
 
     def __call__(self, events: list[tuple[str, float]]) -> float:
         """Return total reward for a list of ``(event_name, value)``."""
+        reward, _, _ = self.details(events)
+        return reward
+
+    def details(self, events: list[tuple[str, float]]) -> tuple[float, dict[str, float], dict[str, float]]:
+        """Return total reward plus per-event contributions and raw totals."""
         reward = 0.0
+        contributions: dict[str, float] = {}
+        raw_values: dict[str, float] = {}
         for name, value in events:
             weight = self.weights.get(name, 0.0)
-            reward += weight * value
-        return reward
+            event_reward = weight * value
+            reward += event_reward
+            contributions[name] = contributions.get(name, 0.0) + event_reward
+            raw_values[name] = raw_values.get(name, 0.0) + value
+        return reward, contributions, raw_values

@@ -224,6 +224,99 @@ class KoreanEvalStopCallback(BaseCallback):
         return True
 
 
+class TrainingDiagnosticsCallback(BaseCallback):
+    """Print rolling episode diagnostics from env-provided summaries."""
+
+    def __init__(
+        self,
+        print_every_episodes: int = 64,
+        min_timestep_gap: int = 40000,
+        verbose: int = 1,
+    ):
+        super().__init__(verbose)
+        self.print_every_episodes = print_every_episodes
+        self.min_timestep_gap = min_timestep_gap
+        self._summaries: list[dict] = []
+        self._last_print_timestep: int = -1
+        self._last_signature: tuple[float, ...] | None = None
+        self._suppressed_count: int = 0
+
+    def _on_step(self) -> bool:
+        infos = self.locals.get("infos", [])
+        dones = self.locals.get("dones", [])
+        for done, info in zip(dones, infos):
+            if not done:
+                continue
+            summary = info.get("episode_summary")
+            if summary:
+                self._summaries.append(summary)
+
+        if self.verbose < 1 or not self._summaries:
+            return True
+        if len(self._summaries) % self.print_every_episodes != 0:
+            return True
+        if (self._last_print_timestep >= 0
+                and self.num_timesteps - self._last_print_timestep < self.min_timestep_gap):
+            return True
+
+        window = self._summaries[-self.print_every_episodes:]
+        served = np.mean([s.get("customers_served", 0.0) for s in window])
+        lost = np.mean([s.get("customers_lost", 0.0) for s in window])
+        profit = np.mean([s.get("net_profit", 0.0) for s in window])
+        rating = np.mean([s.get("shop_rating", 0.0) for s in window])
+        score = np.mean([s.get("final_score", 0.0) for s in window])
+
+        event_keys = [
+            "take_order", "submit_kitchen", "pickup_food", "serve_food",
+            "pickup_drink", "serve_drink", "lost_customer",
+        ]
+        reward_keys = [
+            "dense_shaping", "time_penalty", "idle_penalty",
+            "lost_customer", "take_order", "serve_food",
+            "rating_delta", "net_profit_delta",
+        ]
+
+        def avg_nested(key: str, nested_key: str) -> float:
+            vals = []
+            for summary in window:
+                nested = summary.get(key, {})
+                vals.append(float(nested.get(nested_key, 0.0)))
+            return float(np.mean(vals))
+
+        signature = (
+            round(served, 2),
+            round(lost, 2),
+            round(profit, 2),
+            round(rating, 3),
+            round(score, 2),
+            round(avg_nested("event_totals", "take_order"), 2),
+            round(avg_nested("event_totals", "serve_food"), 2),
+            round(avg_nested("event_totals", "lost_customer"), 2),
+            round(avg_nested("reward_totals", "dense_shaping"), 2),
+            round(avg_nested("reward_totals", "idle_penalty"), 2),
+        )
+        if signature == self._last_signature:
+            self._suppressed_count += 1
+            return True
+
+        if self._suppressed_count > 0:
+            print(f"\n  [학습 진단] 동일한 요약 {self._suppressed_count}회 생략")
+            self._suppressed_count = 0
+        print(f"\n  ── 학습 진단 (최근 {self.print_every_episodes} 에피소드) ─────────")
+        print(f"  평균 서빙/이탈: served={served:.1f}, lost={lost:.1f}")
+        print(f"  평균 순이익/평점/점수: profit={profit:.1f}, rating={rating:.3f}, score={score:.1f}")
+        print("  주요 이벤트:")
+        for key in event_keys:
+            print(f"    {key:<16} {avg_nested('event_totals', key):>8.2f}")
+        print("  주요 보상 성분:")
+        for key in reward_keys:
+            print(f"    {key:<16} {avg_nested('reward_totals', key):>8.2f}")
+        print("  ─────────────────────────────────────────")
+        self._last_print_timestep = self.num_timesteps
+        self._last_signature = signature
+        return True
+
+
 # ────────────────────────────────────────────────
 # Early Stopping (SB3 Callback) – 기존 영문 버전 (호환용)
 # ────────────────────────────────────────────────
