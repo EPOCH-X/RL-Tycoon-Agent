@@ -205,6 +205,16 @@ class Shop:
         return self.total_earned - self.total_spent
 
     @property
+    def shop_rating_stars(self) -> float:
+        """평점을 5점 만점 스케일로 반환 (0.0 ~ 5.0)."""
+        return round(self.shop_rating * 5.0, 1)
+
+    @property
+    def final_score(self) -> float:
+        """최종 스코어 = 순이익 × (평점 / 10). 평점 5.0 → 계수 0.5."""
+        return self.net_profit * (self.shop_rating_stars / 10.0)
+
+    @property
     def total_time_limit(self) -> float:
         return self.day_limit * DAY_LENGTH
 
@@ -427,12 +437,13 @@ class Shop:
                 self.message = ""
 
         # 12) Termination
-        if self.money >= self.target_money:
+        if self.time_elapsed >= self.total_time_limit:
             self.done = True
-            self.won = True
-            events.append(("win", 1.0))
-        elif self.time_elapsed >= self.total_time_limit:
-            self.done = True
+            # 최종 스코어 = 순이익 × (평점/10)
+            events.append(("game_end", self.final_score))
+            if self.money >= self.target_money:
+                self.won = True
+                events.append(("win", 1.0))
 
         return events
 
@@ -1293,6 +1304,8 @@ class Shop:
             "day_limit": self.day_limit,
             "customers_served": self.customers_served,
             "customers_lost": self.customers_lost,
-            "shop_rating": round(self.shop_rating, 2),
+            "shop_rating": round(self.shop_rating, 4),
+            "shop_rating_stars": self.shop_rating_stars,
+            "final_score": round(self.final_score, 1),
             "won": self.won,
         }

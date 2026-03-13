@@ -115,4 +115,4 @@ class DQNTrainer(BaseTrainer):
             self.train_env.close()
         if self.eval_env:
             self.eval_env.close()
-        print(f"[✓] DQN training complete. Models → '{self.save_path}/'")
+        print(f"[✓] DQN (심층 Q-네트워크) 학습 완료. 모델 → '{self.save_path}/'")

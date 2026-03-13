@@ -48,7 +48,8 @@
     "win": 200.0,
     "trash": 0.5,
     "relative_money_bonus": 0.5,
-    "relative_rating_bonus": 1.0
+    "relative_rating_bonus": 1.0,
+    "game_end": 0.01
   },
 
   "game_overrides": {

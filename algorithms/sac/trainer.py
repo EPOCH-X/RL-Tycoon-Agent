@@ -204,8 +204,8 @@ class SACTrainer(BaseTrainer):
             if done:
                 episode_rewards.append(ep_reward)
                 if len(episode_rewards) % 10 == 0:
-                    print(f"  [SAC] Step {step}, Episodes {len(episode_rewards)}, "
-                          f"AvgReward(10): {np.mean(episode_rewards[-10:]):.1f}")
+                    print(f"  [SAC (소프트 액터-크리틱)] 스텝(Step) {step}, 에피소드(Episodes) {len(episode_rewards)}, "
+                          f"평균보상(AvgReward, 최근10): {np.mean(episode_rewards[-10:]):.1f}")
                 obs, _ = env.reset()
                 ep_reward = 0.0
 
@@ -217,18 +217,18 @@ class SACTrainer(BaseTrainer):
             # Eval
             if step % eval_freq == 0:
                 eval_r = self._evaluate(eval_env, n_episodes=5)
-                print(f"  [SAC] Eval at step {step}: mean_reward={eval_r:.1f}")
+                print(f"  [SAC] 평가(Eval) 스텝 {step}: 평균보상(mean_reward)={eval_r:.1f}")
                 if eval_r > best_eval:
                     best_eval = eval_r
                     self.save(os.path.join(self.save_path, "best_model"))
                 if not early_stop.check(eval_r):
-                    print(f"  [SAC] Early stopped at step {step}")
+                    print(f"  [SAC] 조기 종료 (Early stopped), 스텝: {step}")
                     break
 
         self.save(os.path.join(self.save_path, "final_model"))
         env.close()
         eval_env.close()
-        print(f"[✓] SAC training complete. Models → '{self.save_path}/'")
+        print(f"[✓] SAC (소프트 액터-크리틱) 학습 완료. 모델 → '{self.save_path}/'")
         return {"algorithm": "SAC", "timesteps": self._timesteps,
                 "episodes": len(episode_rewards), "save_path": self.save_path}
 

@@ -258,8 +258,8 @@ class ModelBasedTrainer(BaseTrainer):
             if done:
                 ep_rewards.append(ep_reward)
                 if len(ep_rewards) % 10 == 0:
-                    print(f"  [ModelBased] Step {step}, Episodes {len(ep_rewards)}, "
-                          f"AvgReward(10): {np.mean(ep_rewards[-10:]):.1f}")
+                    print(f"  [ModelBased (모델기반)] 스텝(Step) {step}, 에피소드(Episodes) {len(ep_rewards)}, "
+                          f"평균보상(AvgReward, 최근10): {np.mean(ep_rewards[-10:]):.1f}")
                 obs, _ = env.reset()
                 ep_reward = 0.0
 
@@ -270,7 +270,7 @@ class ModelBasedTrainer(BaseTrainer):
                     o, a, r, no, d = replay.sample(wm_batch)
                     loss = self._wm_trainer.train_step(o, a, no, r, d)
                     wm_losses.append(loss["total_loss"])
-                print(f"  [WorldModel] Avg loss: {np.mean(wm_losses):.4f}")
+                print(f"  [WorldModel (월드모델)] 평균 손실(Avg loss): {np.mean(wm_losses):.4f}")
 
                 # 상상 데이터 생성 → 정책 학습 (Dyna-style)
                 self._train_policy_from_imagination(replay, wm_batch, gamma)
@@ -286,20 +286,20 @@ class ModelBasedTrainer(BaseTrainer):
             # 평가
             if step % eval_freq == 0:
                 eval_r = self._evaluate(eval_env)
-                print(f"  [ModelBased] Eval at step {step}: "
-                      f"mean_reward={eval_r:.1f}")
+                print(f"  [ModelBased] 평가(Eval) 스텝 {step}: "
+                      f"평균보상(mean_reward)={eval_r:.1f}")
                 if eval_r > best_eval:
                     best_eval = eval_r
                     self.save(os.path.join(self.save_path, "best_model"))
                 if not early_stop.check(eval_r):
-                    print(f"  [ModelBased] Early stopped at step {step}")
+                    print(f"  [ModelBased] 조기 종료 (Early stopped), 스텝: {step}")
                     break
 
         self.save(os.path.join(self.save_path, "final_model"))
         env.close()
         eval_env.close()
-        print(f"[✓] Model-Based RL training complete. "
-              f"Models → '{self.save_path}/'")
+        print(f"[✓] Model-Based RL (모델기반 강화학습) 학습 완료. "
+              f"모델 → '{self.save_path}/'")
         return {"algorithm": "ModelBased", "timesteps": self._timesteps,
                 "episodes": len(ep_rewards), "save_path": self.save_path}
 

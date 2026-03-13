@@ -39,7 +39,8 @@
     "buy_upgrade": 3.0,
     "no_upgrade": -0.1,
     "win": 200.0,
-    "trash": 0.5
+    "trash": 0.5,
+    "game_end": 0.01
   },
 
   "game_overrides": {

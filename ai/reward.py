@@ -22,6 +22,7 @@ DEFAULT_WEIGHTS: dict[str, float] = {
     "no_upgrade":      -0.1,
     "win":            200.0,
     "trash":            0.5,
+    "game_end":         0.01,
 }
 
 

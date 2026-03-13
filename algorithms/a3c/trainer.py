@@ -235,7 +235,7 @@ class A3CTrainer(BaseTrainer):
         best_eval = float("-inf")
         early_stop = EarlyStopTracker(patience=50, min_delta=1.0, verbose=1)
 
-        print(f"  [A3C-GPU] Training with {n_envs} vectorized envs on {self.device}")
+        print(f"  [A3C-GPU (비동기 액터-크리틱)] {n_envs}개 병렬 환경으로 학습 시작, 디바이스: {self.device}")
 
         while total_steps < self._timesteps:
             # Collect n_steps of experience
@@ -297,26 +297,26 @@ class A3CTrainer(BaseTrainer):
 
             # 로그
             if total_steps % (eval_freq // 2) < n_envs * n_steps:
-                print(f"  [A3C-GPU] Steps: {total_steps}, Episodes: {episode_count}, "
-                      f"Loss: {loss.item():.4f}")
+                print(f"  [A3C-GPU] 스텝(Steps): {total_steps}, 에피소드(Episodes): {episode_count}, "
+                      f"손실(Loss): {loss.item():.4f}")
 
             # 평가
             if total_steps % eval_freq < n_envs * n_steps:
                 eval_r = self._evaluate_gpu(eval_env)
-                print(f"  [A3C-GPU] Eval at step {total_steps}: "
-                      f"mean_reward={eval_r:.1f}")
+                print(f"  [A3C-GPU] 평가(Eval) 스텝 {total_steps}: "
+                      f"평균보상(mean_reward)={eval_r:.1f}")
                 if eval_r > best_eval:
                     best_eval = eval_r
                     self.save(os.path.join(self.save_path, "best_model"))
                 if not early_stop.check(eval_r):
-                    print(f"  [A3C-GPU] Early stopped at step {total_steps}")
+                    print(f"  [A3C-GPU] 조기 종료 (Early stopped), 스텝: {total_steps}")
                     break
 
         vec_env.close()
         eval_env.close()
         self.save(os.path.join(self.save_path, "final_model"))
-        print(f"[✓] A3C-GPU training complete ({episode_count} episodes). "
-              f"Models → '{self.save_path}/'")
+        print(f"[✓] A3C-GPU (비동기 액터-크리틱) 학습 완료 ({episode_count}개 에피소드). "
+              f"모델 → '{self.save_path}/'")
         return {"algorithm": "A3C", "mode": "GPU-A2C",
                 "timesteps": self._timesteps,
                 "total_episodes": episode_count,
@@ -364,8 +364,8 @@ class A3CTrainer(BaseTrainer):
                 msg = results_queue.get_nowait()
                 if msg[0] == "episode":
                     _, rank, ep_cnt, ep_rew = msg
-                    print(f"  [Worker {rank}] Episode {ep_cnt}, "
-                          f"Reward: {ep_rew:.1f}")
+                    print(f"  [워커 {rank}] 에피소드(Episode) {ep_cnt}, "
+                          f"보상(Reward): {ep_rew:.1f}")
                 elif msg[0] == "done":
                     _, rank, ep_cnt, _ = msg
                     total_episodes += ep_cnt
@@ -374,8 +374,8 @@ class A3CTrainer(BaseTrainer):
             p.join()
 
         self.save(os.path.join(self.save_path, "final_model"))
-        print(f"[✓] A3C-CPU training complete ({total_episodes} episodes). "
-              f"Models → '{self.save_path}/'")
+        print(f"[✓] A3C-CPU (비동기 액터-크리틱) 학습 완료 ({total_episodes}개 에피소드). "
+              f"모델 → '{self.save_path}/'")
         return {"algorithm": "A3C", "mode": "CPU-A3C",
                 "timesteps": self._timesteps,
                 "total_episodes": total_episodes,

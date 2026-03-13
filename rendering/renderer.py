@@ -252,9 +252,9 @@ class Renderer:
             centerx=ox + map_w // 2, top=y0))
 
         # ── satisfaction ─────────────────────────
-        rating_pct = int(shop.shop_rating * 100)
+        rating_stars = shop.shop_rating_stars
         stxt = self.font_md.render(
-            f"평점: {rating_pct}%", True, COLORS["satisfaction"])
+            f"평점: {rating_stars:.1f}/5.0★", True, COLORS["satisfaction"])
         surface.blit(stxt, stxt.get_rect(right=ox + map_w - 10, top=y0))
 
         # ── carrying indicator ───────────────────
@@ -520,19 +520,25 @@ class Renderer:
             title = self.font_lg.render("목표 달성!", True, (255, 215, 0))
         else:
             title = self.font_lg.render("시간 종료!", True, (255, 100, 100))
-        surface.blit(title, title.get_rect(center=(cx, cy - 30)))
+        surface.blit(title, title.get_rect(center=(cx, cy - 40)))
+
+        score_txt = self.font_md.render(
+            f"최종 스코어: {shop.final_score:,.1f}"
+            f"  (순이익 ${shop.net_profit:,} × 평점계수 {shop.shop_rating_stars / 10:.2f})",
+            True, (255, 255, 150))
+        surface.blit(score_txt, score_txt.get_rect(center=(cx, cy - 10)))
 
         sub = self.font_md.render(
             f"보유금: ${shop.money}  순이익: ${shop.net_profit}"
-            f"  평점: {int(shop.shop_rating * 100)}%"
+            f"  평점: {shop.shop_rating_stars:.1f}/5.0★"
             f"   {extra_text}", True, (200, 200, 200))
-        surface.blit(sub, sub.get_rect(center=(cx, cy + 10)))
+        surface.blit(sub, sub.get_rect(center=(cx, cy + 15)))
 
         stat = self.font_sm.render(
             f"서빙: {shop.customers_served}  이탈: {shop.customers_lost}",
             True, (160, 160, 160))
-        surface.blit(stat, stat.get_rect(center=(cx, cy + 35)))
+        surface.blit(stat, stat.get_rect(center=(cx, cy + 40)))
 
         hint = self.font_sm.render("R: 재시작  |  ESC: 종료",
                                    True, (160, 160, 160))
-        surface.blit(hint, hint.get_rect(center=(cx, cy + 55)))
+        surface.blit(hint, hint.get_rect(center=(cx, cy + 60)))

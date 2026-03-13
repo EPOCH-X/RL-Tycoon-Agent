@@ -112,4 +112,4 @@ class PPOTrainer(BaseTrainer):
             self.train_env.close()
         if self.eval_env:
             self.eval_env.close()
-        print(f"[✓] PPO training complete. Models → '{self.save_path}/'")
+        print(f"[✓] PPO (근위 정책 최적화) 학습 완료. 모델 → '{self.save_path}/'")

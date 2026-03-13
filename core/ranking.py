@@ -42,6 +42,8 @@ class RankingManager:
             "customers_served": game_result["customers_served"],
             "customers_lost": game_result["customers_lost"],
             "shop_rating": game_result["shop_rating"],
+            "shop_rating_stars": game_result.get("shop_rating_stars", 0.0),
+            "final_score": game_result.get("final_score", 0.0),
             "won": game_result["won"],
             "timestamp": int(time.time()),
         }
@@ -55,14 +57,14 @@ class RankingManager:
         filtered = self.rankings
         if day_limit is not None:
             filtered = [r for r in filtered if r["day_limit"] == day_limit]
-        filtered = sorted(filtered, key=lambda x: x["money"], reverse=True)
+        filtered = sorted(filtered, key=lambda x: x.get("final_score", x["money"]), reverse=True)
         return filtered[:top_n]
 
-    def get_rank(self, money: int, day_limit: int) -> int:
-        """Get the rank position for a given money amount."""
+    def get_rank(self, score: float, day_limit: int) -> int:
+        """Get the rank position for a given final_score."""
         rankings = self.get_rankings(day_limit=day_limit, top_n=10000)
         for i, r in enumerate(rankings):
-            if money >= r["money"]:
+            if score >= r.get("final_score", r["money"]):
                 return i + 1
         return len(rankings) + 1
 

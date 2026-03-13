@@ -88,8 +88,8 @@ class SelfPlayCallback(BaseCallback):
                     if hasattr(env, "set_opponent"):
                         env.set_opponent(opp_agent)
                 if self.verbose:
-                    print(f"  [MARL] Updated opponent from pool "
-                          f"(size={len(self.pool)})")
+                    print(f"  [MARL (자기대결)] 상대 풀에서 업데이트 완료 "
+                          f"(풀 크기={len(self.pool)})")
         return True
 
 
@@ -190,8 +190,8 @@ class MARLTrainer(BaseTrainer):
         self.model.learn(total_timesteps=self._timesteps, callback=[eval_cb, sp_cb])
         self.save(os.path.join(self.save_path, "final_model"))
         self.train_env.close()
-        print(f"[✓] MARL Self-play training complete. "
-              f"Pool size={len(self._pool)}. Models → '{self.save_path}/'")
+        print(f"[✓] MARL (멀티에이전트 자기대결) 학습 완료. "
+              f"상대 풀 크기={len(self._pool)}. 모델 → '{self.save_path}/'")
         return {"algorithm": "MARL", "timesteps": self._timesteps,
                 "pool_size": len(self._pool), "save_path": self.save_path}
 

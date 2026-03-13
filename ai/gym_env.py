@@ -5,6 +5,8 @@ Stable-Baselines3 (and any other Gymnasium-compatible library) can
 train agents on it.
 """
 
+import math
+
 import numpy as np
 import gymnasium
 from gymnasium import spaces
@@ -146,11 +148,61 @@ class TycoonEnv(gymnasium.Env):
 
         self._screen = None
         self._renderer = None
+        self._prev_served: int = 0
+        self._prev_lost: int = 0
+
+    # ── Dense reward shaping ─────────────────────
+    def _dense_shaping(self) -> float:
+        """Proximity-based dense reward to guide agent toward useful tasks."""
+        shop = self.shop
+        px, py = shop.player.x, shop.player.y
+        bonus = 0.0
+        map_diag = math.hypot(shop.grid_width * TILE_SIZE,
+                              shop.grid_height * TILE_SIZE)
+        if map_diag == 0:
+            return 0.0
+
+        # 1) Idle (not carrying) → reward proximity to nearest waiting customer
+        if shop.player.is_idle:
+            best_dist = map_diag
+            for t in shop.tables:
+                if (t.customer is not None
+                        and t.customer.state == CustomerState.WAITING_TO_ORDER):
+                    d = math.hypot(px - t.center_x, py - t.center_y)
+                    best_dist = min(best_dist, d)
+            if best_dist < map_diag:
+                bonus += 0.3 * (1.0 - best_dist / map_diag)
+
+        # 2) Carrying order → reward proximity to kitchen
+        elif shop.player.has_order:
+            if shop.kitchen_counter_positions:
+                best_dist = map_diag
+                for gx, gy in shop.kitchen_counter_positions:
+                    kx = gx * TILE_SIZE + TILE_SIZE / 2
+                    ky = gy * TILE_SIZE + TILE_SIZE / 2
+                    d = math.hypot(px - kx, py - ky)
+                    best_dist = min(best_dist, d)
+                bonus += 0.3 * (1.0 - best_dist / map_diag)
+
+        # 3) Carrying food → reward proximity to target table
+        elif shop.player.has_food:
+            first = shop.player.first_carried
+            if first:
+                tid = first.get("table_id", -1)
+                for t in shop.tables:
+                    if t.table_id == tid:
+                        d = math.hypot(px - t.center_x, py - t.center_y)
+                        bonus += 0.3 * (1.0 - d / map_diag)
+                        break
+
+        return bonus
 
     # ── Gymnasium API ────────────────────────────
     def reset(self, *, seed=None, options=None):
         super().reset(seed=seed)
         self.shop.reset()
+        self._prev_served = 0
+        self._prev_lost = 0
         return build_observation(self.shop), {}
 
     def step(self, action):
@@ -158,6 +210,10 @@ class TycoonEnv(gymnasium.Env):
         # Auto-select traits for RL agent
         self.shop.auto_select_trait()
         reward = self._reward_calc(events)
+
+        # Dense shaping: proximity bonus
+        reward += self._dense_shaping()
+
         obs = build_observation(self.shop)
         terminated = self.shop.done
         truncated = False
@@ -168,9 +224,13 @@ class TycoonEnv(gymnasium.Env):
             "customers_served": self.shop.customers_served,
             "customers_lost": self.shop.customers_lost,
             "shop_rating": self.shop.shop_rating,
+            "shop_rating_stars": self.shop.shop_rating_stars,
+            "final_score": self.shop.final_score,
             "won": self.shop.won,
             "tables_active": len(self.shop.tables),
         }
+        self._prev_served = self.shop.customers_served
+        self._prev_lost = self.shop.customers_lost
         return obs, reward, terminated, truncated, info
 
     def render(self):

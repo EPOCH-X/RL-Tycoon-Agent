@@ -26,9 +26,9 @@ def get_device(force_cpu: bool = False) -> torch.device:
         device = torch.device("cuda")
         gpu_name = torch.cuda.get_device_name(0)
         gpu_mem = torch.cuda.get_device_properties(0).total_memory / (1024**3)
-        print(f"  [GPU] Using CUDA: {gpu_name} ({gpu_mem:.1f} GB)")
+        print(f"  [GPU] CUDA 사용: {gpu_name} ({gpu_mem:.1f} GB)")
         return device
-    print("  [GPU] CUDA not available, using CPU")
+    print("  [GPU] CUDA 사용 불가, CPU 사용")
     return torch.device("cpu")
 
 
@@ -42,12 +42,12 @@ def get_sb3_device(policy: str = "MlpPolicy") -> str:
     if torch.cuda.is_available():
         gpu_name = torch.cuda.get_device_name(0)
         if is_cnn:
-            print(f"  [Device] SB3 CNN → CUDA: {gpu_name}")
+            print(f"  [디바이스] SB3 CNN → CUDA: {gpu_name}")
             return "auto"
         else:
-            print(f"  [Device] SB3 MLP → CPU (small network, GPU overhead 불리)")
+            print(f"  [디바이스] SB3 MLP → CPU (소규모 네트워크, GPU 오버헤드 불리)")
             return "cpu"
-    print("  [Device] CUDA not available → CPU")
+    print("  [디바이스] CUDA 사용 불가 → CPU")
     return "cpu"
 
 
@@ -57,6 +57,7 @@ def load_algo_config(algo_name: str, config_path: str | None = None) -> dict:
     우선순위: config_path > algorithms/<algo>/config.json > config/train_config.json
     """
     if config_path and os.path.isfile(config_path):
+        print(f"  [설정 로드] {algo_name} ← 사용자 지정: {config_path}")
         with open(config_path, encoding="utf-8") as f:
             return json.load(f)
     # 알고리즘 폴더 내 기본 config
@@ -64,9 +65,11 @@ def load_algo_config(algo_name: str, config_path: str | None = None) -> dict:
         os.path.dirname(__file__), algo_name.lower(), "config.json"
     )
     if os.path.isfile(algo_dir):
+        print(f"  [설정 로드] {algo_name} ← 전용 설정: {algo_dir}")
         with open(algo_dir, encoding="utf-8") as f:
             return json.load(f)
     # fallback: 기존 train_config.json
+    print(f"  [설정 로드] {algo_name} ← 기본 설정: config/train_config.json")
     return load_json_config("train_config.json")
 
 
@@ -163,19 +166,19 @@ class EarlyStopCallback(BaseCallback):
             self.best_reward = mean_reward
             self.wait = 0
             if self.verbose >= 2:
-                print(f"  [EarlyStop] New best: {mean_reward:.1f}")
+                print(f"  [조기종료] 신기록 (New best): {mean_reward:.1f}")
         else:
             self.wait += 1
             if self.verbose >= 2:
-                print(f"  [EarlyStop] No improve: {self.wait}/{self.patience} "
-                      f"(best={self.best_reward:.1f}, current={mean_reward:.1f})")
+                print(f"  [조기종료] 미개선 (No improve): {self.wait}/{self.patience} "
+                      f"(최고={self.best_reward:.1f}, 현재={mean_reward:.1f})")
 
         if self.wait >= self.patience:
             if self.verbose >= 1:
-                print(f"\n  [EarlyStop] ★ 학습 조기 종료! "
+                print(f"\n  [조기종료] ★ 학습 조기 종료! "
                       f"{self.patience}회 연속 개선 없음 "
-                      f"(best={self.best_reward:.1f}, "
-                      f"steps={self.num_timesteps})")
+                      f"(최고={self.best_reward:.1f}, "
+                      f"스텝={self.num_timesteps})")
             return False  # 학습 중단
         return True
 
@@ -217,13 +220,13 @@ class EarlyStopTracker:
 
         self.wait += 1
         if self.verbose >= 2:
-            print(f"  [EarlyStop] No improve: {self.wait}/{self.patience} "
-                  f"(best={self.best_reward:.1f}, current={eval_reward:.1f})")
+            print(f"  [조기종료] 미개선 (No improve): {self.wait}/{self.patience} "
+                  f"(최고={self.best_reward:.1f}, 현재={eval_reward:.1f})")
 
         if self.wait >= self.patience:
             if self.verbose >= 1:
-                print(f"\n  [EarlyStop] ★ 학습 조기 종료! "
+                print(f"\n  [조기종료] ★ 학습 조기 종료! "
                       f"{self.patience}회 연속 개선 없음 "
-                      f"(best={self.best_reward:.1f})")
+                      f"(최고={self.best_reward:.1f})")
             return False
         return True
