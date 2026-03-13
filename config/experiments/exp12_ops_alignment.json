@@ -1,0 +1,55 @@
+{
+  "_comment": "exp12_ops_alignment: exp11 관측을 유지하면서 stale carry, 업그레이드 타이밍, 운영 상태 신호를 강화한다.",
+
+  "algorithm": "MaskablePPO",
+  "policy": "MlpPolicy",
+
+  "training": {
+    "total_timesteps": 3000000,
+    "n_envs": 12,
+    "seed": 42,
+    "eval_freq": 5000
+  },
+
+  "hyperparameters": {
+    "learning_rate": 3e-4,
+    "n_steps": 2048,
+    "batch_size": 64,
+    "n_epochs": 10,
+    "gamma": 0.99,
+    "gae_lambda": 0.95,
+    "clip_range": 0.2,
+    "ent_coef": 0.005,
+    "vf_coef": 0.5,
+    "max_grad_norm": 0.5
+  },
+
+  "network": {
+    "net_arch": [128, 128],
+    "activation_fn": "tanh"
+  },
+
+  "reward_shaping": {
+    "_comment": "stale carry 처리와 업그레이드 사용을 더 명확히 유도",
+    "take_order": 4.0,
+    "serve_food": 20.0,
+    "submit_kitchen": 6.0,
+    "pickup_food": 6.0,
+    "pickup_drink": 2.0,
+    "serve_drink": 5.0,
+    "customer_payment": 0.02,
+    "lost_customer": -80.0,
+    "wrong_table": -6.0,
+    "buy_upgrade": 3.0,
+    "no_upgrade": -0.01,
+    "win": 180.0,
+    "trash": -0.2,
+    "stale_carry_cleared": 4.0
+  },
+
+  "game_overrides": {
+    "_comment": "exp11과 동일한 목표 유지",
+    "target_money": 150,
+    "day_limit": 8
+  }
+}

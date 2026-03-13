@@ -1,5 +1,5 @@
 {
-  "_comment": "강화학습 하이퍼파라미터 설정. 팀원별로 자유롭게 수정하세요.",
+  "_comment": "exp02_short: 짧은 에피소드 커리큘럼으로 주문-조리-서빙 루프를 먼저 학습",
 
   "algorithm": "MaskablePPO",
   "policy": "MlpPolicy",
@@ -30,7 +30,7 @@
   },
 
   "reward_shaping": {
-    "_comment": "보상 가중치. reward = weight × event_value. 팀원별로 자유롭게 조정하세요.",
+    "_comment": "baseline reward 유지. 에피소드 길이만 줄여 학습 가능성부터 본다.",
     "take_order": 1.5,
     "serve_food": 8.0,
     "submit_kitchen": 2.0,
@@ -47,8 +47,8 @@
   },
 
   "game_overrides": {
-    "_comment": "게임 환경 파라미터 오버라이드 (null이면 기본값 사용)",
-    "target_money": null,
-    "day_limit": null
+    "_comment": "짧은 에피소드로 초기 성공 경험을 빠르게 축적",
+    "target_money": 400,
+    "day_limit": 8
   }
 }

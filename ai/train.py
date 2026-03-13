@@ -1,4 +1,4 @@
-"""Training script – trains a PPO agent on the Tycoon environment using SB3.
+"""Training script – trains a MaskablePPO agent on the Tycoon environment.
 
 설정은 config/train_config.json 에서 관리합니다.
 CLI 인자로 오버라이드할 수도 있습니다.
@@ -12,13 +12,117 @@ Usage:
 import argparse
 import json
 import os
+import importlib.util
 
-from stable_baselines3 import PPO
+from sb3_contrib import MaskablePPO
+from sb3_contrib.common.maskable.callbacks import MaskableEvalCallback
 from stable_baselines3.common.vec_env import DummyVecEnv, SubprocVecEnv
-from stable_baselines3.common.callbacks import EvalCallback
 
 from config.settings import load_json_config
 from ai.gym_env import TycoonEnv
+
+
+def _tensorboard_log_dir(save_path: str) -> str | None:
+    """Return a TensorBoard log dir only when tensorboard is installed."""
+    if importlib.util.find_spec("tensorboard") is None:
+        return None
+    return os.path.join(save_path, "tb_logs")
+
+
+def _save_training_plots(save_path: str):
+    """Persist evaluation and TensorBoard scalar plots when dependencies exist."""
+    if importlib.util.find_spec("matplotlib") is None:
+        print("[!] matplotlib not installed; skipping plot export.")
+        return
+
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    import numpy as np
+
+    plots_dir = os.path.join(save_path, "plots")
+    os.makedirs(plots_dir, exist_ok=True)
+
+    eval_npz = os.path.join(save_path, "eval_logs", "evaluations.npz")
+    if os.path.isfile(eval_npz):
+        data = np.load(eval_npz)
+        timesteps = data["timesteps"]
+        results = data["results"]
+        ep_lengths = data["ep_lengths"]
+
+        mean_rewards = results.mean(axis=1)
+        std_rewards = results.std(axis=1)
+        plt.figure(figsize=(8, 4.5))
+        plt.plot(timesteps, mean_rewards, label="mean_reward")
+        plt.fill_between(
+            timesteps,
+            mean_rewards - std_rewards,
+            mean_rewards + std_rewards,
+            alpha=0.2,
+            label="std")
+        plt.xlabel("Timesteps")
+        plt.ylabel("Eval Reward")
+        plt.title("Evaluation Reward")
+        plt.legend()
+        plt.tight_layout()
+        plt.savefig(os.path.join(plots_dir, "eval_reward.png"), dpi=150)
+        plt.close()
+
+        mean_lengths = ep_lengths.mean(axis=1)
+        plt.figure(figsize=(8, 4.5))
+        plt.plot(timesteps, mean_lengths, label="mean_ep_length")
+        plt.xlabel("Timesteps")
+        plt.ylabel("Episode Length")
+        plt.title("Evaluation Episode Length")
+        plt.legend()
+        plt.tight_layout()
+        plt.savefig(os.path.join(plots_dir, "eval_episode_length.png"), dpi=150)
+        plt.close()
+
+    if importlib.util.find_spec("tensorboard") is None:
+        return
+
+    tb_root = os.path.join(save_path, "tb_logs")
+    run_dirs = []
+    if os.path.isdir(tb_root):
+        run_dirs = [
+            os.path.join(tb_root, name)
+            for name in os.listdir(tb_root)
+            if os.path.isdir(os.path.join(tb_root, name))
+        ]
+    if not run_dirs:
+        return
+
+    from tensorboard.backend.event_processing.event_accumulator import EventAccumulator
+
+    scalar_specs = {
+        "train_loss.png": ["train/loss", "train/value_loss"],
+        "train_policy.png": ["train/approx_kl", "train/clip_fraction", "train/entropy_loss"],
+        "eval_summary.png": ["eval/mean_reward", "eval/mean_ep_length"],
+    }
+
+    event_acc = EventAccumulator(run_dirs[0])
+    event_acc.Reload()
+    available = set(event_acc.Tags().get("scalars", []))
+
+    for filename, tags in scalar_specs.items():
+        present_tags = [tag for tag in tags if tag in available]
+        if not present_tags:
+            continue
+        plt.figure(figsize=(8, 4.5))
+        for tag in present_tags:
+            vals = event_acc.Scalars(tag)
+            if not vals:
+                continue
+            steps = [v.step for v in vals]
+            scalars = [v.value for v in vals]
+            plt.plot(steps, scalars, label=tag)
+        plt.xlabel("Timesteps")
+        plt.title(filename.replace(".png", "").replace("_", " ").title())
+        plt.legend()
+        plt.tight_layout()
+        plt.savefig(os.path.join(plots_dir, filename), dpi=150)
+        plt.close()
 
 
 def load_train_config(config_path: str | None = None) -> dict:
@@ -30,7 +134,8 @@ def load_train_config(config_path: str | None = None) -> dict:
 
 
 def _make_env(rank: int = 0, seed: int = 0, game_overrides: dict | None = None,
-              reward_config: dict | None = None):
+              reward_config: dict | None = None,
+              env_options: dict | None = None):
     def _init():
         kwargs = {}
         if game_overrides:
@@ -38,6 +143,11 @@ def _make_env(rank: int = 0, seed: int = 0, game_overrides: dict | None = None,
                 kwargs["target_money"] = game_overrides["target_money"]
             if game_overrides.get("day_limit") is not None:
                 kwargs["day_limit"] = game_overrides["day_limit"]
+        if env_options:
+            kwargs.update({
+                key: value for key, value in env_options.items()
+                if not key.startswith("_")
+            })
         env = TycoonEnv(reward_config=reward_config, **kwargs)
         env.reset(seed=seed + rank)
         return env
@@ -51,6 +161,7 @@ def train(args):
     net_cfg = cfg.get("network", {})
     game_ov = cfg.get("game_overrides", {})
     reward_cfg = cfg.get("reward_shaping", {})
+    env_options = cfg.get("env_options", {})
 
     # CLI overrides take priority
     timesteps = args.timesteps or t_cfg.get("total_timesteps", 200_000)
@@ -68,11 +179,11 @@ def train(args):
     # Vectorised training environments
     if n_envs > 1:
         train_env = SubprocVecEnv(
-            [_make_env(i, seed, game_ov, reward_cfg) for i in range(n_envs)])
+            [_make_env(i, seed, game_ov, reward_cfg, env_options) for i in range(n_envs)])
     else:
-        train_env = DummyVecEnv([_make_env(0, seed, game_ov, reward_cfg)])
+        train_env = DummyVecEnv([_make_env(0, seed, game_ov, reward_cfg, env_options)])
 
-    eval_env = DummyVecEnv([_make_env(0, seed + 1000, game_ov, reward_cfg)])
+    eval_env = DummyVecEnv([_make_env(0, seed + 1000, game_ov, reward_cfg, env_options)])
 
     # Build policy kwargs from network config
     policy_kwargs = {}
@@ -85,7 +196,7 @@ def train(args):
         if act_cls:
             policy_kwargs["activation_fn"] = act_cls
 
-    model = PPO(
+    model = MaskablePPO(
         cfg.get("policy", "MlpPolicy"),
         train_env,
         verbose=1,
@@ -100,10 +211,10 @@ def train(args):
         vf_coef=hp.get("vf_coef", 0.5),
         max_grad_norm=hp.get("max_grad_norm", 0.5),
         policy_kwargs=policy_kwargs if policy_kwargs else None,
-        tensorboard_log=os.path.join(save_path, "tb_logs"),
+        tensorboard_log=_tensorboard_log_dir(save_path),
     )
 
-    eval_cb = EvalCallback(
+    eval_cb = MaskableEvalCallback(
         eval_env,
         best_model_save_path=save_path,
         log_path=os.path.join(save_path, "eval_logs"),
@@ -116,6 +227,7 @@ def train(args):
 
     train_env.close()
     eval_env.close()
+    _save_training_plots(save_path)
     print(f"[✓] Training complete.  Models saved to '{save_path}/'")
 
 

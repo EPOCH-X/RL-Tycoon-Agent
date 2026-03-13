@@ -8,23 +8,30 @@ import pygame
 from config.settings import (
     TILE_SIZE, UI_HEIGHT, COLORS,
     VERSUS_DIVIDER_WIDTH, VERSUS_DIVIDER_COLOR,
-    ACTION_INTERACT, ACTION_NONE,
+    ACTION_INTERACT, ACTION_NONE, ACTION_BUY_UPGRADE,
+    ACTION_UP, ACTION_DOWN, ACTION_LEFT, ACTION_RIGHT,
+    INTERACT_RANGE,
 )
 from modes.base_mode import BaseMode
 from core.shop import Shop
+from core.customer import CustomerState
 from rendering.asset_manager import AssetManager
 from rendering.renderer import Renderer
 from ai.agent import load_agent
+from ai.controller import decide_override_action
 
 
 class VersusMode(BaseMode):
 
     def __init__(self, *, model_path=None,
-                 target_money=None, day_limit=None):
+                 target_money=None, day_limit=None,
+                 time_scale: float = 1.0,
+                 use_rule_controller: bool = False):
         self.human_shop = Shop(target_money=target_money,
                                day_limit=day_limit)
         self.ai_shop = Shop(target_money=target_money,
                             day_limit=day_limit)
+        self.use_rule_controller = use_rule_controller
 
         self.map_w = self.human_shop.grid_width * TILE_SIZE
         self.map_h = self.human_shop.grid_height * TILE_SIZE + UI_HEIGHT
@@ -32,7 +39,8 @@ class VersusMode(BaseMode):
         screen_w = self.map_w * 2 + VERSUS_DIVIDER_WIDTH
         screen_h = self.map_h
         super().__init__(screen_w, screen_h,
-                         title="RL 타이쿤 – 대결 모드")
+                         title="RL 타이쿤 – 대결 모드",
+                         time_scale=time_scale)
 
         self.am = AssetManager()
         self.renderer_left = Renderer(self.am)
@@ -50,6 +58,15 @@ class VersusMode(BaseMode):
                 self.running = False
                 return
             if event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_RIGHTBRACKET:
+                    self.increase_speed()
+                    continue
+                if event.key == pygame.K_LEFTBRACKET:
+                    self.decrease_speed()
+                    continue
+                if event.key == pygame.K_0:
+                    self.reset_speed()
+                    continue
                 if event.key == pygame.K_ESCAPE:
                     if self.human_shop.upgrade_mode:
                         self.human_shop.upgrade_mode = False
@@ -112,7 +129,7 @@ class VersusMode(BaseMode):
 
         # AI – full step (movement + game logic)
         obs = self._build_ai_obs()
-        ai_action = self.agent.predict(obs)
+        ai_action = self._decide_ai_action()
         self.ai_shop.step(ai_action)
 
         # AI auto-selects traits
@@ -200,3 +217,12 @@ class VersusMode(BaseMode):
         """
         from ai.gym_env import build_observation
         return build_observation(self.ai_shop)
+
+    def _decide_ai_action(self):
+        obs = self._build_ai_obs()
+        if self.use_rule_controller:
+            heuristic_action = decide_override_action(self.ai_shop)
+            if heuristic_action is not None:
+                return heuristic_action
+        return self.agent.predict(
+            obs, action_mask=self.ai_shop.get_action_mask())

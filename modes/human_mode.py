@@ -18,11 +18,13 @@ from rendering.renderer import Renderer
 
 class HumanMode(BaseMode):
 
-    def __init__(self, *, target_money=None, day_limit=None):
+    def __init__(self, *, target_money=None, day_limit=None,
+                 time_scale: float = 1.0):
         self.shop = Shop(target_money=target_money, day_limit=day_limit)
         w = self.shop.grid_width * TILE_SIZE
         h = self.shop.grid_height * TILE_SIZE + UI_HEIGHT
-        super().__init__(w, h, title="RL 타이쿤 – 솔로 모드")
+        super().__init__(w, h, title="RL 타이쿤 – 솔로 모드",
+                         time_scale=time_scale)
 
         self.am = AssetManager()
         self.renderer = Renderer(self.am)
@@ -37,6 +39,15 @@ class HumanMode(BaseMode):
                 self.running = False
                 return
             if event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_RIGHTBRACKET:
+                    self.increase_speed()
+                    continue
+                if event.key == pygame.K_LEFTBRACKET:
+                    self.decrease_speed()
+                    continue
+                if event.key == pygame.K_0:
+                    self.reset_speed()
+                    continue
                 if event.key == pygame.K_ESCAPE:
                     if self.shop.upgrade_mode:
                         self.shop.upgrade_mode = False
@@ -110,10 +121,10 @@ class HumanMode(BaseMode):
             if not self._result_recorded:
                 result = self.shop.get_game_result()
                 self.ranking.record_result("Player", result)
-                self._result_recorded = True
                 rank = self.ranking.get_rank(
                     self.shop.money, self.shop.day_limit)
                 self._rank_text = f"랭킹: #{rank}"
+                self._result_recorded = True
             self.renderer.draw_game_over(
                 self.screen, self.shop,
                 extra_text=getattr(self, "_rank_text", ""))

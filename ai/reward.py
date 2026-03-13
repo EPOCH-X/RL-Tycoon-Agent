@@ -9,19 +9,19 @@ Team members can tune reward values **without touching game code**.
 
 # Default reward weights (fallback when config is absent)
 DEFAULT_WEIGHTS: dict[str, float] = {
-    "take_order":       2.0,
-    "serve_food":       5.0,
-    "submit_kitchen":   1.0,
-    "pickup_food":      1.0,
-    "pickup_drink":     1.0,
-    "serve_drink":      3.0,
-    "customer_payment": 1.0,
-    "lost_customer":   -30.0,
-    "wrong_table":     -2.0,
-    "buy_upgrade":      3.0,
-    "no_upgrade":      -0.1,
+    "take_order":       1.5,
+    "serve_food":       8.0,
+    "submit_kitchen":   2.0,
+    "pickup_food":      2.0,
+    "pickup_drink":     1.5,
+    "serve_drink":      4.0,
+    "customer_payment": 0.05,
+    "lost_customer":   -60.0,
+    "wrong_table":     -4.0,
+    "buy_upgrade":      2.0,
+    "no_upgrade":      -0.02,
     "win":            200.0,
-    "trash":            0.5,
+    "trash":           -0.5,
 }
 
 

@@ -17,6 +17,8 @@ import math
 import random
 from collections import deque
 
+import numpy as np
+
 from config.settings import (
     TILE_SIZE, STEP_INTERVAL, CUSTOMER_SPAWN_INTERVAL,
     KITCHEN_CAPACITY, DEFAULT_TARGET_MONEY, DEFAULT_DAY_LIMIT,
@@ -38,7 +40,8 @@ class Shop:
 
     def __init__(self, *, map_data=None, menu_data=None,
                  customers_data=None, upgrades_data=None,
-                 target_money=None, day_limit=None):
+                 target_money=None, day_limit=None,
+                 interact_mask_mode: str = "strict"):
         # ── load config ──────────────────────────
         if map_data is None:
             map_data = load_json_config("map_default.json")
@@ -127,6 +130,7 @@ class Shop:
         self.day_limit: int = day_limit or DEFAULT_DAY_LIMIT
         self.done: bool = False
         self.won: bool = False
+        self.interact_mask_mode: str = interact_mask_mode
 
         # ── economy tracking ─────────────────────
         self.total_earned: int = 0
@@ -436,6 +440,98 @@ class Shop:
 
         return events
 
+    def get_action_mask(self) -> np.ndarray:
+        """Return a boolean mask for currently valid RL actions."""
+        mask = np.ones(7, dtype=bool)
+        mask[ACTION_INTERACT] = self.can_interact_now()
+        mask[ACTION_BUY_UPGRADE] = self.can_buy_any_upgrade_now()
+        return mask
+
+    def can_buy_any_upgrade_now(self) -> bool:
+        """Whether the auto-buy RL action can succeed right now."""
+        return self._get_best_auto_buy_choice() is not None
+
+    def can_interact_now(self) -> bool:
+        """Whether an interact action can produce a meaningful state change."""
+        require_facing = self.interact_mask_mode != "loose"
+        best_type, best_obj = self._find_best_interaction_target(
+            require_facing=require_facing)
+        if best_type is None:
+            return False
+        if best_type == "table":
+            return self._can_interact_table(best_obj)
+        if best_type == "kitchen":
+            return self._can_interact_kitchen()
+        if best_type == "bar":
+            return self._can_interact_bar()
+        if best_type == "trash":
+            return self._can_interact_trash()
+        return False
+
+    def _is_stale_carried_item(self, item: dict) -> bool:
+        """Whether a carried item no longer has a valid destination."""
+        table = self._find_table(item.get("table_id"))
+        cust = table.customer if table else None
+        if cust is None:
+            return True
+        item_type = item.get("type")
+        if item_type == "food":
+            return cust.state != CustomerState.ORDER_TAKEN
+        if item_type == "drink":
+            return cust.state not in (CustomerState.ORDER_TAKEN, CustomerState.EATING)
+        if item_type == "order":
+            return cust.state != CustomerState.ORDER_TAKEN
+        return False
+
+    def has_stale_carry(self) -> bool:
+        """Whether the player is carrying food/order/drink with no valid target."""
+        return any(self._is_stale_carried_item(item) for item in self.player.carrying)
+
+    def has_urgent_work(self) -> bool:
+        """Whether immediate servicing tasks exist and upgrades should wait."""
+        if self.player.carrying:
+            return True
+        if self.kitchen.has_ready:
+            return True
+        if self.bartender_hired and self.bar.has_ready:
+            return True
+        for table in self.tables:
+            if table.customer and table.customer.state == CustomerState.WAITING_TO_ORDER:
+                return True
+        return False
+
+    def should_auto_buy_now(self) -> bool:
+        """Whether live-controller automation should force an upgrade purchase now."""
+        best_choice = self._get_best_auto_buy_choice()
+        if best_choice is None:
+            return False
+
+        if self.has_stale_carry() or self.player.carrying:
+            return False
+
+        if self.kitchen.has_ready or (self.bartender_hired and self.bar.has_ready):
+            return False
+
+        waiting = 0
+        critical_waiting = 0
+        for table in self.tables:
+            cust = table.customer
+            if cust is None:
+                continue
+            if cust.state == CustomerState.WAITING_TO_ORDER:
+                waiting += 1
+                if cust.patience_ratio < 0.55:
+                    critical_waiting += 1
+            elif cust.state == CustomerState.ORDER_TAKEN and cust.patience_ratio < 0.35:
+                return False
+
+        if critical_waiting > 0:
+            return False
+        if waiting > 1:
+            return False
+
+        return best_choice["score"] >= 70.0
+
     # ═══════════════════════════════════════════════
     #  Pixel Movement
     # ═══════════════════════════════════════════════
@@ -502,7 +598,8 @@ class Shop:
     # ═══════════════════════════════════════════════
     #  Distance-based Interaction
     # ═══════════════════════════════════════════════
-    def _interact(self) -> list[tuple[str, float]]:
+    def _find_best_interaction_target(self, require_facing: bool = True):
+        """Return the closest interaction target, optionally requiring facing."""
         px = self.player.center_x
         py = self.player.center_y
         fdx, fdy = Player.DIRECTION_VEC[self.player.facing]
@@ -511,12 +608,11 @@ class Shop:
         best_obj = None
         best_dist = INTERACT_RANGE + 1
 
-        # Check tables
         for table in self.tables:
             dist = math.hypot(table.center_x - px, table.center_y - py)
             if dist > INTERACT_RANGE:
                 continue
-            if dist > 1e-3:
+            if require_facing and dist > 1e-3:
                 dirx = (table.center_x - px) / dist
                 diry = (table.center_y - py) / dist
                 if dirx * fdx + diry * fdy < 0.1:
@@ -526,14 +622,13 @@ class Shop:
                 best_obj = table
                 best_dist = dist
 
-        # Check kitchen counters
         for kpos in self.kitchen_counter_positions:
             kcx = kpos[0] * TILE_SIZE + TILE_SIZE / 2
             kcy = kpos[1] * TILE_SIZE + TILE_SIZE / 2
             dist = math.hypot(kcx - px, kcy - py)
             if dist > INTERACT_RANGE:
                 continue
-            if dist > 1e-3:
+            if require_facing and dist > 1e-3:
                 dirx = (kcx - px) / dist
                 diry = (kcy - py) / dist
                 if dirx * fdx + diry * fdy < 0.1:
@@ -543,14 +638,13 @@ class Shop:
                 best_obj = kpos
                 best_dist = dist
 
-        # Check bar counters
         for bpos in self.bar_counter_positions:
             bcx = bpos[0] * TILE_SIZE + TILE_SIZE / 2
             bcy = bpos[1] * TILE_SIZE + TILE_SIZE / 2
             dist = math.hypot(bcx - px, bcy - py)
             if dist > INTERACT_RANGE:
                 continue
-            if dist > 1e-3:
+            if require_facing and dist > 1e-3:
                 dirx = (bcx - px) / dist
                 diry = (bcy - py) / dist
                 if dirx * fdx + diry * fdy < 0.1:
@@ -560,14 +654,13 @@ class Shop:
                 best_obj = bpos
                 best_dist = dist
 
-        # Check trash cans
         for tpos in self.trash_can_positions:
             tcx = tpos[0] * TILE_SIZE + TILE_SIZE / 2
             tcy = tpos[1] * TILE_SIZE + TILE_SIZE / 2
             dist = math.hypot(tcx - px, tcy - py)
             if dist > INTERACT_RANGE:
                 continue
-            if dist > 1e-3:
+            if require_facing and dist > 1e-3:
                 dirx = (tcx - px) / dist
                 diry = (tcy - py) / dist
                 if dirx * fdx + diry * fdy < 0.1:
@@ -577,6 +670,10 @@ class Shop:
                 best_obj = tpos
                 best_dist = dist
 
+        return best_type, best_obj
+
+    def _interact(self) -> list[tuple[str, float]]:
+        best_type, best_obj = self._find_best_interaction_target()
         if best_type is None:
             return []
         if best_type == "table":
@@ -586,6 +683,42 @@ class Shop:
         if best_type == "trash":
             return self._interact_trash()
         return self._interact_kitchen()
+
+    def _can_interact_table(self, table: Table) -> bool:
+        cust = table.customer
+        if cust is None or cust.state == CustomerState.WALKING_TO_TABLE:
+            return False
+
+        if self.player.is_idle and cust.state == CustomerState.WAITING_TO_ORDER:
+            return True
+
+        if self.player.has_food:
+            foods = [c for c in self.player.carrying
+                     if c["type"] == "food" and c["table_id"] == table.table_id]
+            return bool(foods) and cust.state == CustomerState.ORDER_TAKEN
+
+        if self.player.has_drink:
+            drinks = [c for c in self.player.carrying
+                      if c["type"] == "drink" and c["table_id"] == table.table_id]
+            return bool(drinks) and cust.state in (
+                CustomerState.ORDER_TAKEN, CustomerState.EATING)
+
+        return False
+
+    def _can_interact_kitchen(self) -> bool:
+        if self.player.has_order:
+            return self.kitchen.num_cooking < self.kitchen.capacity
+        if self.player.can_carry_more and self.kitchen.has_ready:
+            return True
+        return False
+
+    def _can_interact_bar(self) -> bool:
+        return (self.bartender_hired
+                and self.player.can_carry_more
+                and self.bar.has_ready)
+
+    def _can_interact_trash(self) -> bool:
+        return bool(self.player.carrying)
 
     def _interact_table(self, table: Table) -> list[tuple[str, float]]:
         cust = table.customer
@@ -705,10 +838,16 @@ class Shop:
         if not self.player.carrying:
             self._msg("버릴 것이 없습니다")
             return []
+        stale_count = sum(
+            1 for item in self.player.carrying if self._is_stale_carried_item(item)
+        )
         count = len(self.player.carrying)
         self.player.carrying.clear()
         self._msg(f"{count}개 항목 폐기!")
-        return [("trash", 1.0)]
+        events = [("trash", 1.0)]
+        if stale_count:
+            events.append(("stale_carry_cleared", float(stale_count)))
+        return events
 
     # ═══════════════════════════════════════════════
     #  Customer spawning
@@ -940,10 +1079,50 @@ class Shop:
         self._table_positions[(table.grid_x, table.grid_y)] = table
         self.layout[table.grid_y][table.grid_x] = 2
 
-    def _auto_buy_upgrade(self) -> list[tuple[str, float]]:
-        """RL action: auto-buy cheapest affordable upgrade or food unlock."""
-        best_id = None
-        best_cost = float('inf')
+    def _score_upgrade_choice(self, choice: dict) -> float:
+        """Score an affordable auto-buy choice for RL/inference automation."""
+        kind = choice["kind"]
+        cost = max(1, choice["cost"])
+        if kind == "upgrade":
+            uid = choice["id"]
+            score_map = {
+                "buy_table": 130.0,
+                "speed_shoes": 120.0,
+                "cook_speed": 118.0,
+                "hire_chef": 112.0,
+                "marketing": 85.0,
+                "kitchen_expand": 80.0,
+                "hire_bartender": 75.0,
+                "employee_speed": 70.0,
+                "hire_waiter": 68.0,
+                "hire_delivery": 40.0,
+            }
+            score = score_map.get(uid, 50.0)
+            if uid == "buy_table" and len(self.tables) >= 6:
+                score -= 25.0
+            if uid == "speed_shoes" and self.upgrade_levels.get(uid, 0) >= 2:
+                score -= 20.0
+            if uid == "hire_chef" and self.num_chefs >= self.max_chefs:
+                score -= 80.0
+            if uid == "kitchen_expand" and self.num_chefs < self.max_chefs:
+                score -= 35.0
+            if uid == "hire_bartender" and len(self.tables) < 5:
+                score -= 10.0
+            if uid == "hire_waiter" and len(self.tables) < 6:
+                score -= 20.0
+        else:
+            menu_item = choice["item"]
+            score = 60.0 + float(menu_item.get("price", 0))
+            if menu_item.get("cook_time", 0) > 8:
+                score -= 15.0
+
+        score -= cost / 25.0
+        return score
+
+    def _get_best_auto_buy_choice(self) -> dict | None:
+        """Return the highest-scoring affordable upgrade/food unlock."""
+        choices: list[dict] = []
+
         for upg in self.upgrades_data:
             uid = upg["id"]
             level = self.upgrade_levels[uid]
@@ -953,11 +1132,17 @@ class Shop:
             if self.net_profit < req:
                 continue
             cost = int(upg["base_cost"] * (upg["cost_multiplier"] ** level))
-            if cost <= self.money and cost < best_cost:
-                best_id = uid
-                best_cost = cost
+            if cost > self.money:
+                continue
+            choice = {
+                "kind": "upgrade",
+                "id": uid,
+                "cost": cost,
+                "data": upg,
+            }
+            choice["score"] = self._score_upgrade_choice(choice)
+            choices.append(choice)
 
-        # Also consider food unlocks
         for item in self.menu:
             if item["id"] in self.unlocked_food:
                 continue
@@ -965,18 +1150,30 @@ class Shop:
             if self.net_profit < req:
                 continue
             cost = item.get("unlock_cost", 0)
-            if cost <= self.money and cost < best_cost:
-                best_id = f"food:{item['id']}"
-                best_cost = cost
+            if cost > self.money:
+                continue
+            choice = {
+                "kind": "food",
+                "id": item["id"],
+                "cost": cost,
+                "item": item,
+            }
+            choice["score"] = self._score_upgrade_choice(choice)
+            choices.append(choice)
 
-        if best_id:
-            if best_id.startswith("food:"):
-                fid = best_id[5:]
-                food = next((m for m in self.menu if m["id"] == fid), None)
-                if food:
-                    self._unlock_food(food)
+        if not choices:
+            return None
+        choices.sort(key=lambda c: (c["score"], -c["cost"]), reverse=True)
+        return choices[0]
+
+    def _auto_buy_upgrade(self) -> list[tuple[str, float]]:
+        """RL action: auto-buy the best-scoring affordable upgrade or unlock."""
+        choice = self._get_best_auto_buy_choice()
+        if choice:
+            if choice["kind"] == "food":
+                self._unlock_food(choice["item"])
             else:
-                self.buy_upgrade(best_id)
+                self.buy_upgrade(choice["id"])
             return [("buy_upgrade", 1.0)]
         return [("no_upgrade", 1.0)]
 
@@ -1254,9 +1451,59 @@ class Shop:
         return True
 
     def auto_select_trait(self):
-        """RL auto-pick: first available choice."""
+        """Auto-pick the best available trait using a simple heuristic."""
         if self.trait_selection_active and self.trait_choices:
-            self.select_trait(0)
+            best_idx = 0
+            best_score = float("-inf")
+            for idx, trait in enumerate(self.trait_choices):
+                score = self._score_trait_choice(trait)
+                if score > best_score:
+                    best_score = score
+                    best_idx = idx
+            self.select_trait(best_idx)
+
+    def _score_trait_choice(self, trait: dict) -> float:
+        """Heuristic score for AI-only trait auto-selection."""
+        effect = trait.get("effect", "")
+        score_map = {
+            "carry_capacity": 118.0,
+            "cook_time_reduction": 115.0,
+            "speed_bonus": 105.0,
+            "patience_bonus": 95.0,
+            "food_price_bonus": 70.0,
+            "tip_bonus": 50.0,
+            "base_tip": 45.0,
+            "spawn_rate": 20.0,
+        }
+        score = score_map.get(effect, 0.0)
+
+        busy_shop = len(self.tables) >= 6
+        struggling = self.customers_lost >= max(1, self.customers_served)
+
+        if effect == "carry_capacity":
+            score += 25.0 if busy_shop else 5.0
+            if self.player.carry_capacity >= 2:
+                score -= 60.0
+        if effect == "cook_time_reduction":
+            if self.kitchen.num_cooking >= max(1, self.kitchen.capacity - 1):
+                score += 25.0
+            if self.num_chefs <= 1:
+                score += 15.0
+        if effect == "speed_bonus":
+            score += 20.0 if busy_shop else 8.0
+        if effect == "patience_bonus" and struggling:
+            score += 35.0
+        if effect == "spawn_rate":
+            if struggling or len(self.tables) < 5:
+                score -= 40.0
+            else:
+                score += 10.0
+        if effect == "food_price_bonus" and self.money < self.target_money * 0.5:
+            score += 10.0
+        if effect in ("tip_bonus", "base_tip") and self.shop_rating >= 0.7:
+            score += 12.0
+
+        return score
 
     def _apply_trait(self, trait: dict):
         effect = trait.get("effect", "")

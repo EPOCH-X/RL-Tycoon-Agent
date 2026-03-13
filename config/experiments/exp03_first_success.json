@@ -1,0 +1,54 @@
+{
+  "_comment": "exp03_first_success: 첫 주문-조리-서빙 성공을 만들기 위해 중간 단계 보상을 강화",
+
+  "algorithm": "MaskablePPO",
+  "policy": "MlpPolicy",
+
+  "training": {
+    "total_timesteps": 1000000,
+    "n_envs": 12,
+    "seed": 42,
+    "eval_freq": 5000
+  },
+
+  "hyperparameters": {
+    "learning_rate": 3e-4,
+    "n_steps": 2048,
+    "batch_size": 64,
+    "n_epochs": 10,
+    "gamma": 0.99,
+    "gae_lambda": 0.95,
+    "clip_range": 0.2,
+    "ent_coef": 0.005,
+    "vf_coef": 0.5,
+    "max_grad_norm": 0.5
+  },
+
+  "network": {
+    "net_arch": [128, 128],
+    "activation_fn": "tanh"
+  },
+
+  "reward_shaping": {
+    "_comment": "초기 성공 체인 보상 강화: 주문 접수 -> 주방 전달 -> 음식 수거 -> 음식 서빙",
+    "take_order": 4.0,
+    "serve_food": 20.0,
+    "submit_kitchen": 6.0,
+    "pickup_food": 6.0,
+    "pickup_drink": 2.0,
+    "serve_drink": 5.0,
+    "customer_payment": 0.02,
+    "lost_customer": -80.0,
+    "wrong_table": -6.0,
+    "buy_upgrade": 1.0,
+    "no_upgrade": -0.01,
+    "win": 150.0,
+    "trash": -1.0
+  },
+
+  "game_overrides": {
+    "_comment": "짧은 에피소드 유지. 목표 금액도 더 낮춰 첫 승리 경험 가능성 증가",
+    "target_money": 200,
+    "day_limit": 8
+  }
+}
