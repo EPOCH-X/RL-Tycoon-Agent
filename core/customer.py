@@ -14,10 +14,11 @@ Optional drink order (served separately for bonus income).
 import math
 import random
 from core.entity import Entity
-from config.settings import COLORS, SATISFACTION_FAST_THRESHOLD, CUSTOMER_WALK_SPEED, TILE_SIZE
+from config.settings import COLORS, SATISFACTION_FAST_THRESHOLD, CUSTOMER_WALK_SPEED, TILE_SIZE, WAITING_PATIENCE
 
 
 class CustomerState:
+    WAITING_OUTSIDE = "waiting_outside"
     WALKING_TO_TABLE = "walking_to_table"
     WAITING_TO_ORDER = "waiting_to_order"
     ORDER_TAKEN = "order_taken"
@@ -36,7 +37,8 @@ class Customer(Entity):
                  drink_item: dict | None = None,
                  patience_bonus: float = 0.0,
                  entrance_x: float | None = None,
-                 entrance_y: float | None = None):
+                 entrance_y: float | None = None,
+                 waiting_outside: bool = False):
         color_key = customer_type.get("color_key", "customer")
         # Start at entrance if given, otherwise at table directly
         start_x = entrance_x if entrance_x is not None else x
@@ -54,14 +56,19 @@ class Customer(Entity):
         self.target_y: float = float(y)
         self.walk_speed: float = CUSTOMER_WALK_SPEED
 
-        # Start walking if entrance provided, else seated immediately
-        if entrance_x is not None:
+        # State initialization
+        if waiting_outside:
+            self.state = CustomerState.WAITING_OUTSIDE
+        elif entrance_x is not None:
             self.state = CustomerState.WALKING_TO_TABLE
         else:
             self.state = CustomerState.WAITING_TO_ORDER
 
         self.patience = float(customer_type["patience"]) + patience_bonus
         self.max_patience = self.patience
+        # Waiting outside uses separate, shorter patience
+        self.waiting_patience: float = WAITING_PATIENCE
+        self.max_waiting_patience: float = WAITING_PATIENCE
         self.eat_timer = EATING_TIME
 
         self.wealth_mult = float(customer_type["wealth_mult"])
@@ -80,13 +87,41 @@ class Customer(Entity):
         return max(0.0, self.patience / self.max_patience)
 
     @property
+    def waiting_patience_ratio(self) -> float:
+        return max(0.0, self.waiting_patience / self.max_waiting_patience)
+
+    @property
     def is_done(self) -> bool:
         return self.state in (CustomerState.LEAVING_HAPPY,
                               CustomerState.LEAVING_ANGRY)
 
+    # ── assign table to waiting customer ─────────
+    def assign_table(self, table_id: int, table_x: float, table_y: float,
+                     entrance_x: float, entrance_y: float):
+        """Move a WAITING_OUTSIDE customer to a table."""
+        self.table_id = table_id
+        self.target_x = table_x
+        self.target_y = table_y
+        self.x = entrance_x
+        self.y = entrance_y
+        self.state = CustomerState.WALKING_TO_TABLE
+
     # ── update per tick ──────────────────────────
     def update(self, dt: float):
         if self.is_done:
+            return
+
+        # Waiting outside (separate patience)
+        if self.state == CustomerState.WAITING_OUTSIDE:
+            self.waiting_patience -= dt
+            if self.waiting_patience <= 0:
+                self.waiting_patience = 0
+                self.state = CustomerState.LEAVING_ANGRY
+            ratio = self.waiting_patience_ratio
+            if ratio < 0.35:
+                self.color = COLORS["customer_angry"]
+            else:
+                self.color = COLORS.get("customer_waiting", self._base_color)
             return
 
         # Walking to table (no patience loss during walk)

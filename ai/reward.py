@@ -38,6 +38,10 @@ DEFAULT_WEIGHTS: dict[str, float] = {
     "buy_upgrade":        2.0,
     "food_unlock":        0.3,    # 음식 해금 (value=메뉴가격, 0.3×가격=보상)
     "no_upgrade":         0.0,
+    # ── 대기열 (잠재고객) ──
+    "customer_waiting":      -0.3,    # 손님이 밖에서 대기 시작 (자리 부족 경고)
+    "waiting_customer_seated": 3.0,   # 대기 손님이 착석 (테이블 확보 보상)
+    "waiting_customer_left": -8.0,    # 대기 손님 이탈 (잠재 수익 손실)
     # ── 게임 마일스톤 ──
     "win":              200.0,
     "game_end":           0.01,

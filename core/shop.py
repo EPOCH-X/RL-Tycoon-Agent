@@ -23,6 +23,7 @@ from config.settings import (
     DAY_LENGTH, SATISFACTION_HISTORY_LEN,
     PLAYER_SPEED, PLAYER_RADIUS, INTERACT_RANGE,
     EMPLOYEE_SPEED, EMPLOYEE_ACTION_DELAY,
+    MAX_WAITING_QUEUE, WAITING_PATIENCE,
     ACTION_UP, ACTION_DOWN, ACTION_LEFT, ACTION_RIGHT,
     ACTION_INTERACT, ACTION_NONE, ACTION_BUY_UPGRADE,
     load_json_config,
@@ -93,7 +94,9 @@ class Shop:
         for kc in map_data.get("kitchen_counters", []):
             self.kitchen_counter_positions.add((kc["grid_x"], kc["grid_y"]))
 
-        self.kitchen = Kitchen(capacity=KITCHEN_CAPACITY)
+        self.kitchen = Kitchen(
+            cooking_capacity=KITCHEN_CAPACITY,
+            storage_capacity=len(self.kitchen_counter_positions))
 
         # ── chef system ──────────────────────────
         self.num_chefs: int = KITCHEN_CAPACITY          # starts with 1 chef
@@ -143,6 +146,12 @@ class Shop:
         self.spawn_rate_mult: float = 1.0
         self.cook_speed_mult: float = 1.0
         self.wealthy_bonus: float = 0.0
+
+        # ── waiting queue (밖에서 대기 중인 잠재고객) ──
+        self.waiting_queue: list[Customer] = []
+        self.max_waiting_queue: int = MAX_WAITING_QUEUE
+        self.waiting_customers_seated: int = 0
+        self.waiting_customers_left: int = 0
 
         # ── food unlock ──────────────────────────
         self.unlocked_food: set[str] = set()
@@ -315,8 +324,12 @@ class Shop:
 
     @property
     def available_menu(self) -> list[dict]:
-        """Menu items currently unlocked for sale."""
-        return [m for m in self.menu if m["id"] in self.unlocked_food]
+        """Menu items currently unlocked based on net profit.
+
+        순이익이 unlock_profit 이상이면 자동 해금.
+        """
+        np_ = self.net_profit
+        return [m for m in self.menu if m.get("unlock_profit", 0) <= np_]
 
     @property
     def available_beverages(self) -> list[dict]:
@@ -341,7 +354,9 @@ class Shop:
         self._purchasable_tables = list(
             self.map_data.get("purchasable_tables", []))
 
-        self.kitchen = Kitchen(capacity=KITCHEN_CAPACITY)
+        self.kitchen = Kitchen(
+            cooking_capacity=KITCHEN_CAPACITY,
+            storage_capacity=len(self.kitchen_counter_positions))
         self.num_chefs = KITCHEN_CAPACITY
         self.max_chefs = len(self.kitchen_counter_positions)
         self.bar = BarStation(capacity=2)
@@ -368,6 +383,11 @@ class Shop:
         self.customer_spawn_timer = CUSTOMER_SPAWN_INTERVAL
         self.upgrade_mode = False
         self.upgrade_tab = 0
+
+        # Waiting queue
+        self.waiting_queue = []
+        self.waiting_customers_seated = 0
+        self.waiting_customers_left = 0
 
         for uid in self.upgrade_levels:
             self.upgrade_levels[uid] = 0
@@ -532,7 +552,8 @@ class Shop:
         # 8) 손님 스폰 (만족도 기반)
         self.customer_spawn_timer -= dt
         if self.customer_spawn_timer <= 0:
-            self._try_spawn_customer()
+            spawn_events = self._try_spawn_customer()
+            events.extend(spawn_events)
             base_interval = CUSTOMER_SPAWN_INTERVAL / max(0.5, self.spawn_rate_mult)
             # 평점이 높을수록 손님이 자주 방문
             rating_factor = max(0.6, 1.8 - self.shop_rating * 1.2)
@@ -541,7 +562,13 @@ class Shop:
             adjusted = base_interval * rating_factor * day_factor
             self.customer_spawn_timer = max(3.0, adjusted)
 
-        # 9) Trait system (day-based check)
+        # 8.5) 대기열 업데이트 (대기 → 착석 / 대기 → 이탈)
+        events.extend(self._update_waiting_queue(dt))
+
+        # 9) 음식 자동 해금 (순이익 기반)
+        self._check_food_unlocks(events)
+
+        # 10) Trait system (day-based check)
         self._check_trait_offer()
 
         # 10) Time
@@ -888,8 +915,12 @@ class Shop:
     def _interact_kitchen(self) -> list[tuple[str, float]]:
         # ── Submit orders ────────────────────────
         if self.player.has_order:
+            if not self.kitchen.can_accept:
+                self._msg("주방이 가득 찼습니다!")
+                return []
             orders = self.player.drop_orders()
             submitted = 0
+            rejected = []
             for order in orders:
                 item = order["item"]
                 cook_time = max(1.0, item["cook_time"] - self.cook_time_reduction)
@@ -898,16 +929,18 @@ class Shop:
                     cook_time_override=cook_time)
                 if ok:
                     submitted += 1
+                    if self.bartender_hired and order.get("drink_item"):
+                        self.bar.submit_drink(order["table_id"], order["drink_item"])
+                else:
+                    rejected.append(order)
 
-                # Auto-queue drink at bar if bartender hired
-                if self.bartender_hired and order.get("drink_item"):
-                    self.bar.submit_drink(order["table_id"], order["drink_item"])
+            # Return rejected orders to player
+            for order in rejected:
+                self.player.carrying.append(order)
 
             if submitted:
                 self._msg(f"{submitted}개 조리 시작")
                 return [("submit_kitchen", float(submitted))]
-            else:
-                self._msg("주방이 가득 찼습니다!")
             return []
 
         # ── Pick up food ─────────────────────────
@@ -980,20 +1013,13 @@ class Shop:
     # ═══════════════════════════════════════════════
     #  Customer spawning
     # ═══════════════════════════════════════════════
-    def _try_spawn_customer(self):
-        if self.num_customers >= self.max_seated:
-            return
-        empty_tables = [t for t in self.tables if not t.is_occupied]
-        if not empty_tables:
-            return
-
+    def _try_spawn_customer(self) -> list[tuple[str, float]]:
+        events: list[tuple[str, float]] = []
         avail = self.available_menu
         if not avail:
-            return
+            return events
 
-        table = random.choice(empty_tables)
         ctype = self._pick_customer_type()
-
         menu_item = random.choice(avail)
 
         # Optional drink order
@@ -1003,15 +1029,69 @@ class Shop:
             if bev and random.random() < 0.5:
                 drink_item = random.choice(bev)
 
-        table.customer = Customer(
-            table.table_id,
-            table.grid_x * TILE_SIZE,
-            table.grid_y * TILE_SIZE,
-            ctype, menu_item,
-            drink_item=drink_item,
-            patience_bonus=self.patience_bonus,
-            entrance_x=self.entrance_x,
-            entrance_y=self.entrance_y)
+        # 빈 테이블 확인
+        empty_tables = [t for t in self.tables if not t.is_occupied]
+        if empty_tables:
+            table = random.choice(empty_tables)
+            table.customer = Customer(
+                table.table_id,
+                table.grid_x * TILE_SIZE,
+                table.grid_y * TILE_SIZE,
+                ctype, menu_item,
+                drink_item=drink_item,
+                patience_bonus=self.patience_bonus,
+                entrance_x=self.entrance_x,
+                entrance_y=self.entrance_y)
+        elif len(self.waiting_queue) < self.max_waiting_queue:
+            # 테이블이 없으면 대기열에 추가
+            waiting_cust = Customer(
+                -1,  # 아직 테이블 미배정
+                self.entrance_x,
+                self.entrance_y,
+                ctype, menu_item,
+                drink_item=drink_item,
+                patience_bonus=self.patience_bonus,
+                entrance_x=self.entrance_x,
+                entrance_y=self.entrance_y,
+                waiting_outside=True)
+            self.waiting_queue.append(waiting_cust)
+            events.append(("customer_waiting", 1.0))
+        # else: 대기열도 꽉 참 → 손님 생성 안 됨 (잠재 고객 놓침)
+        return events
+
+    def _update_waiting_queue(self, dt: float) -> list[tuple[str, float]]:
+        """Update waiting customers: seat if table available, or lose if patience runs out."""
+        events: list[tuple[str, float]] = []
+
+        # 1) 빈 테이블에 대기 손님 배정 (FIFO)
+        empty_tables = [t for t in self.tables if not t.is_occupied]
+        while empty_tables and self.waiting_queue:
+            table = empty_tables.pop(0)
+            cust = self.waiting_queue.pop(0)
+            cust.assign_table(
+                table.table_id,
+                table.grid_x * TILE_SIZE,
+                table.grid_y * TILE_SIZE,
+                self.entrance_x,
+                self.entrance_y)
+            table.customer = cust
+            self.waiting_customers_seated += 1
+            events.append(("waiting_customer_seated", 1.0))
+
+        # 2) 대기 손님 patience 업데이트
+        still_waiting: list[Customer] = []
+        for cust in self.waiting_queue:
+            cust.update(dt)
+            if cust.state == CustomerState.LEAVING_ANGRY:
+                self.waiting_customers_left += 1
+                self.customers_lost += 1
+                self._record_satisfaction(-0.5)  # 대기 이탈은 서빙 이탈보다 가벼운 패널티
+                events.append(("waiting_customer_left", 1.0))
+            else:
+                still_waiting.append(cust)
+        self.waiting_queue = still_waiting
+
+        return events
 
     def _pick_customer_type(self) -> dict:
         """Pick a customer type filtered by unlock_rating (satisfaction)."""
@@ -1038,6 +1118,22 @@ class Shop:
         if self.satisfaction_history:
             self.shop_rating = max(0.0, min(1.0,
                 sum(self.satisfaction_history) / len(self.satisfaction_history)))
+
+    # ═══════════════════════════════════════════════
+    #  Food Auto-Unlock (순이익 기반 자동 해금)
+    # ═══════════════════════════════════════════════
+    def _check_food_unlocks(self, events: list[tuple[str, float]]):
+        """순이익이 해금 조건을 충족하면 자동으로 메뉴 해금."""
+        np_ = self.net_profit
+        for item in self.menu:
+            fid = item["id"]
+            if fid in self.unlocked_food:
+                continue
+            req = item.get("unlock_profit", 0)
+            if np_ >= req:
+                self.unlocked_food.add(fid)
+                self._msg(f"메뉴 해금: {item['name']}! (순이익 ${np_})")
+                events.append(("food_unlock", float(item["price"])))
 
     # ═══════════════════════════════════════════════
     #  Upgrade System (with tabs and net-profit unlock)
@@ -1077,21 +1173,24 @@ class Shop:
         return info
 
     def _get_food_unlock_info(self) -> list[dict]:
-        """Return food items that can be unlocked (menu tab)."""
+        """Return food items with auto-unlock status (menu tab).
+
+        음식은 순이익 달성 시 자동 해금. 구매 불필요.
+        """
         info = []
         for item in self.menu:
             req = item.get("unlock_profit", 0)
-            cost = item.get("unlock_cost", 0)
             already = item["id"] in self.unlocked_food
             locked = self.net_profit < req
             info.append({
                 "data": item,
                 "level": 1 if already else 0,
-                "cost": cost,
+                "cost": 0,  # 자동 해금 (구매 불필요)
                 "maxed": already,
                 "locked": locked and not already,
-                "can_afford": not already and not locked and self.money >= cost,
+                "can_afford": False,  # 자동 해금이므로 구매 버튼 없음
                 "is_food_unlock": True,
+                "unlock_profit_req": req,
             })
         return info
 
@@ -1137,28 +1236,11 @@ class Shop:
         if 0 <= idx < len(items):
             item = items[idx]
             if item.get("is_food_unlock"):
-                return self._unlock_food(item["data"])
+                # 음식은 자동 해금이므로 구매 불가
+                self._msg("음식은 순이익 달성 시 자동 해금됩니다!")
+                return False
             return self.buy_upgrade(item["data"]["id"])
         return False
-
-    def _unlock_food(self, food_item: dict) -> bool:
-        fid = food_item["id"]
-        if fid in self.unlocked_food:
-            self._msg("이미 해금되었습니다!")
-            return False
-        req = food_item.get("unlock_profit", 0)
-        if self.net_profit < req:
-            self._msg(f"순이익 ${req} 필요!")
-            return False
-        cost = food_item.get("unlock_cost", 0)
-        if self.money < cost:
-            self._msg(f"${cost} 필요!")
-            return False
-        self.money -= cost
-        self.total_spent += cost
-        self.unlocked_food.add(fid)
-        self._msg(f"해금: {food_item['name']}!")
-        return True
 
     def _apply_upgrade(self, upg: dict):
         etype = upg["effect_type"]
@@ -1170,11 +1252,12 @@ class Shop:
             self.cook_speed_mult += val
         elif etype == "kitchen_expand":
             self.max_chefs += int(val)
-            self._msg(f"주방 확장! (최대 요리사: {self.max_chefs}명)")
+            self.kitchen.storage_capacity += int(val)
+            self._msg(f"주방 확장! (보관:{self.kitchen.storage_capacity} 최대요리사:{self.max_chefs}명)")
         elif etype == "hire_chef":
             if self.num_chefs < self.max_chefs:
                 self.num_chefs += 1
-                self.kitchen.capacity = self.num_chefs
+                self.kitchen.cooking_capacity = self.num_chefs
                 self._msg(f"요리사 고용! ({self.num_chefs}/{self.max_chefs})")
             else:
                 self._msg("주방 칸이 부족합니다! 주방 확장이 필요합니다.")
@@ -1223,12 +1306,15 @@ class Shop:
     }
 
     def _auto_buy_upgrade(self) -> list[tuple[str, float]]:
-        """RL action: 전략적 업그레이드 구매.
+        """전략적 업그레이드 구매 (ROI 우선순위 기반).
 
-        단순 최저가가 아닌, ROI 우선순위 기반으로 구매합니다.
-        음식 해금은 가격 대비 수익률이 높은 것을 우선합니다.
+        음식 해금은 순이익 기반 자동 해금으로 변경되어 여기서 제외.
+        대기열에 손님이 있으면 테이블 구매 우선도 동적 상승.
         """
         candidates: list[tuple[float, str, int]] = []  # (priority, id, cost)
+
+        # 대기열 손님 수에 따라 buy_table 동적 우선도 증가
+        queue_pressure = len(self.waiting_queue)
 
         for upg in self.upgrades_data:
             uid = upg["id"]
@@ -1247,22 +1333,10 @@ class Shop:
             priority = self._UPGRADE_PRIORITY.get(uid, 1)
             # 레벨이 높아질수록 우선도 감소 (첫 구매가 가장 가치 있음)
             priority -= level * 0.5
+            # 대기열이 있으면 테이블 구매 우선도 대폭 상승
+            if uid == "buy_table" and queue_pressure > 0:
+                priority += queue_pressure * 3.0
             candidates.append((priority, uid, cost))
-
-        # 음식 해금: 해금 가능한 것 중 가격이 가장 높은 메뉴 우선
-        # (비싼 메뉴 = 높은 수익 → 장기적 ROI 최대화)
-        for item in self.menu:
-            if item["id"] in self.unlocked_food:
-                continue
-            req = item.get("unlock_profit", 0)
-            if self.net_profit < req:
-                continue
-            cost = item.get("unlock_cost", 0)
-            if cost > self.money:
-                continue
-            # 음식 해금 우선도: 가격 기반 (비싼 음식 = 높은 우선도)
-            food_priority = 5.0 + item["price"] / 20.0
-            candidates.append((food_priority, f"food:{item['id']}", cost))
 
         if not candidates:
             return [("no_upgrade", 1.0)]
@@ -1270,15 +1344,7 @@ class Shop:
         # 우선도 높은 것 선택
         candidates.sort(key=lambda c: c[0], reverse=True)
         _, best_id, _ = candidates[0]
-
-        if best_id.startswith("food:"):
-            fid = best_id[5:]
-            food = next((m for m in self.menu if m["id"] == fid), None)
-            if food:
-                self._unlock_food(food)
-                return [("food_unlock", float(food["price"]))]
-        else:
-            self.buy_upgrade(best_id)
+        self.buy_upgrade(best_id)
         return [("buy_upgrade", 1.0)]
 
     # ═══════════════════════════════════════════════
@@ -1407,11 +1473,13 @@ class Shop:
                 order = emp.carrying
                 item = order["item"]
                 cook_time = max(1.0, item["cook_time"] - self.cook_time_reduction)
-                self.kitchen.submit_order(
+                ok = self.kitchen.submit_order(
                     order["table_id"], item, cook_time_override=cook_time)
-                if self.bartender_hired and order.get("drink_item"):
-                    self.bar.submit_drink(order["table_id"], order["drink_item"])
-                emp.carrying = None
+                if ok:
+                    if self.bartender_hired and order.get("drink_item"):
+                        self.bar.submit_drink(order["table_id"], order["drink_item"])
+                    emp.carrying = None
+                # If kitchen full, employee keeps carrying and will retry
             emp.finish_task()
 
         elif task == "pickup_food":

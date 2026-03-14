@@ -42,20 +42,26 @@ class Table:
 class Kitchen:
     """The centralised kitchen.  Manages a queue of cooking orders.
 
-    Orders submitted by the player are cooked here in parallel
-    (up to *capacity* at a time).  Completed dishes wait in a ready queue
-    for the player to pick up.  Delivery dishes land in a separate queue.
+    Two separate capacities:
+      - *cooking_capacity*  = number of chefs (concurrent cooking slots)
+      - *storage_capacity*  = number of kitchen tiles (ready-dish storage)
+
+    When a dish finishes cooking but storage is full, the chef stays
+    occupied (dish remains in *cooking* with timer ≤ 0) until a storage
+    slot opens.  Delivery dishes bypass storage entirely.
     """
 
-    def __init__(self, capacity: int = 3):
-        self.capacity = capacity
+    def __init__(self, cooking_capacity: int = 1,
+                 storage_capacity: int = 3):
+        self.cooking_capacity = cooking_capacity
+        self.storage_capacity = storage_capacity
         self.cooking: list[dict] = []
         self.ready: list[dict] = []
         self.delivery_ready: list[dict] = []
 
     @property
     def can_accept(self) -> bool:
-        return len(self.cooking) < self.capacity
+        return len(self.cooking) < self.cooking_capacity
 
     @property
     def has_ready(self) -> bool:
@@ -64,6 +70,10 @@ class Kitchen:
     @property
     def num_cooking(self) -> int:
         return len(self.cooking)
+
+    @property
+    def has_storage_space(self) -> bool:
+        return len(self.ready) < self.storage_capacity
 
     def submit_order(self, table_id: int, menu_item: dict,
                      *, delivery: bool = False,
@@ -91,19 +101,28 @@ class Kitchen:
         return None
 
     def update(self, dt: float, cook_speed_mult: float = 1.0):
-        """Advance all cooking timers by *dt* seconds."""
+        """Advance all cooking timers by *dt* seconds.
+
+        Finished dishes move to *ready* only if storage has room.
+        Otherwise the chef stays occupied (dish stays in *cooking*).
+        """
         still_cooking = []
         for order in self.cooking:
             order["timer"] -= dt * cook_speed_mult
             if order["timer"] <= 0:
-                dish = {
-                    "table_id": order["table_id"],
-                    "menu_item": order["menu_item"],
-                }
                 if order.get("delivery"):
-                    self.delivery_ready.append(dish)
+                    self.delivery_ready.append({
+                        "table_id": order["table_id"],
+                        "menu_item": order["menu_item"],
+                    })
+                elif len(self.ready) < self.storage_capacity:
+                    self.ready.append({
+                        "table_id": order["table_id"],
+                        "menu_item": order["menu_item"],
+                    })
                 else:
-                    self.ready.append(dish)
+                    # Storage full — chef blocked, keep in cooking
+                    still_cooking.append(order)
             else:
                 still_cooking.append(order)
         self.cooking = still_cooking

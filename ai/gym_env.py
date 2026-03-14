@@ -143,6 +143,7 @@ def _obs_size(shop: Shop) -> int:
         + 3                          # kitchen: cooking count, ready count, capacity ratio
         + 6                          # kitchen/bar/trash landmark positions (3×2)
         + 2                          # nearest-target direction vector (dx, dy)
+        + 3                          # waiting queue: count ratio, first patience ratio, queue_full
         + 8                          # money_ratio, day_ratio, time_ratio, shop_rating,
                                      # can_upgrade, net_profit_ratio, employee_count, bar+delivery
     )
@@ -210,10 +211,10 @@ def build_observation(shop: Shop) -> np.ndarray:
         idx += 6
 
     # ── Kitchen ──────────────────────────────────
-    obs[idx]     = shop.kitchen.num_cooking / max(1, shop.kitchen.capacity)
-    obs[idx + 1] = len(shop.kitchen.ready) / max(1, shop.kitchen.capacity)
+    obs[idx]     = shop.kitchen.num_cooking / max(1, shop.kitchen.cooking_capacity)
+    obs[idx + 1] = len(shop.kitchen.ready) / max(1, shop.kitchen.storage_capacity)
     obs[idx + 2] = (shop.kitchen.num_cooking + len(shop.kitchen.ready)
-                     ) / max(1, shop.kitchen.capacity)
+                     ) / max(1, shop.kitchen.cooking_capacity + shop.kitchen.storage_capacity)
     idx += 3
 
     # ── Landmark positions (kitchen, bar, trash — averaged) ──
@@ -242,6 +243,14 @@ def build_observation(shop: Shop) -> np.ndarray:
     obs[idx]     = np.clip(target_dx, -1.0, 1.0)
     obs[idx + 1] = np.clip(target_dy, -1.0, 1.0)
     idx += 2
+
+    # ── Waiting queue (밖에서 대기 중인 잠재고객) ──
+    max_q = max(1, shop.max_waiting_queue)
+    obs[idx]     = len(shop.waiting_queue) / max_q  # queue utilization
+    if shop.waiting_queue:
+        obs[idx + 1] = shop.waiting_queue[0].waiting_patience_ratio  # first customer patience
+    obs[idx + 2] = 1.0 if len(shop.waiting_queue) >= shop.max_waiting_queue else 0.0  # queue full
+    idx += 3
 
     # ── Game state ───────────────────────────────
     obs[idx]     = min(1.0, shop.money / max(1, shop.target_money))
@@ -502,6 +511,7 @@ class TycoonEnv(gymnasium.Env):
             "final_score": self.shop.final_score,
             "won": self.shop.won,
             "tables_active": len(self.shop.tables),
+            "waiting_queue": len(self.shop.waiting_queue),
             "last_events": dict(event_values),
             "last_reward_breakdown": dict(reward_breakdown),
         }

@@ -55,6 +55,7 @@ class Renderer:
         self._draw_bar(surface, shop, offset_x, offset_y)
         self._draw_trash_cans(surface, shop, offset_x, offset_y)
         self._draw_customers(surface, shop, offset_x, offset_y)
+        self._draw_waiting_queue(surface, shop, offset_x, offset_y)
         self._draw_employees(surface, shop, offset_x, offset_y)
         shop.player.render(surface, self.am, offset_x, offset_y)
         self._draw_ui(surface, shop, offset_x, offset_y)
@@ -226,6 +227,40 @@ class Renderer:
                     pygame.draw.rect(surface, bcol, (bx, by, fw, bh))
 
     # ═══════════════════════════════════════════════
+    #  Waiting Queue (entrance area)
+    # ═══════════════════════════════════════════════
+    def _draw_waiting_queue(self, surface, shop, ox, oy):
+        if not shop.waiting_queue:
+            return
+        ex = int(shop.entrance_x) + ox
+        ey = int(shop.entrance_y) + oy
+        # Draw each waiting customer in a row near the entrance
+        for i, cust in enumerate(shop.waiting_queue):
+            # Stack vertically below entrance, offset by index
+            cx = ex + (i % 2) * (TILE_SIZE + 4)
+            cy = ey + (i // 2) * (TILE_SIZE + 4)
+            body = pygame.Rect(cx + 8, cy + 8, TILE_SIZE - 16, TILE_SIZE - 16)
+            pygame.draw.rect(surface, cust.color, body)
+            pygame.draw.rect(surface, (0, 0, 0), body, 1)
+            icon = self.font_sm.render("...", True, (200, 200, 200))
+            surface.blit(icon, icon.get_rect(center=body.center))
+            # Patience bar
+            bw = TILE_SIZE - 16
+            bh = 3
+            bx = cx + 8
+            by = cy + TILE_SIZE - 10
+            pygame.draw.rect(surface, (60, 60, 60), (bx, by, bw, bh))
+            ratio = cust.waiting_patience_ratio
+            fw = int(bw * ratio)
+            if fw > 0:
+                bcol = (int(255 * (1 - ratio)), int(255 * ratio), 0)
+                pygame.draw.rect(surface, bcol, (bx, by, fw, bh))
+        # Queue count label
+        qlbl = self.font_sm.render(
+            f"대기:{len(shop.waiting_queue)}", True, (255, 200, 80))
+        surface.blit(qlbl, (ex, ey - 14))
+
+    # ═══════════════════════════════════════════════
     #  Bottom UI panel
     # ═══════════════════════════════════════════════
     def _draw_ui(self, surface, shop, ox, oy):
@@ -282,9 +317,12 @@ class Renderer:
             f"서빙:{shop.customers_served}",
             f"이탈:{shop.customers_lost}",
             f"요리사:{shop.num_chefs}/{shop.max_chefs}",
-            f"조리:{shop.kitchen.num_cooking}/{shop.kitchen.capacity}",
+            f"조리:{shop.kitchen.num_cooking}/{shop.kitchen.cooking_capacity}",
+            f"보관:{len(shop.kitchen.ready)}/{shop.kitchen.storage_capacity}",
             f"테이블:{len(shop.tables)}",
         ]
+        if shop.waiting_queue:
+            parts2.append(f"대기:{len(shop.waiting_queue)}")
         if shop.employees:
             parts2.append(f"직원:{len(shop.employees)}")
         if shop.bartender_hired:
@@ -359,6 +397,10 @@ class Renderer:
             elif maxed:
                 key_col = (60, 60, 60)
                 key_str = "[v]"
+            elif is_food:
+                # 자동 해금 — 구매 불가
+                key_col = (200, 200, 100)
+                key_str = "[~]"
             elif can_afford:
                 key_col = (100, 255, 100)
                 key_str = f"[{i + 1}]"
@@ -375,10 +417,12 @@ class Renderer:
                     nm_str += "  [해금됨]"
                     nm_col = (80, 180, 80)
                 elif locked:
-                    nm_str += f"  (순이익 ${data.get('unlock_profit', 0)} 필요)"
+                    req = entry.get("unlock_profit_req", data.get("unlock_profit", 0))
+                    nm_str += f"  (순이익 ${req} 필요)"
                     nm_col = (100, 100, 100)
                 else:
-                    nm_col = (255, 255, 255) if can_afford else (180, 120, 120)
+                    nm_str += "  [자동 해금 대기]"
+                    nm_col = (200, 200, 100)
             else:
                 level = entry["level"]
                 if maxed:
@@ -394,8 +438,8 @@ class Renderer:
             nm = self.font_md.render(nm_str, True, nm_col)
             surface.blit(nm, (panel_x + 50, ey))
 
-            # Cost
-            if not maxed and not locked:
+            # Cost (food items are auto-unlocked, no cost shown)
+            if not maxed and not locked and not is_food:
                 cost_col = (100, 255, 100) if can_afford else (255, 100, 100)
                 ct = self.font_sm.render(f"${cost}", True, cost_col)
                 surface.blit(ct, (panel_x + 50, ey + 22))
