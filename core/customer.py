@@ -25,6 +25,7 @@ class CustomerState:
     EATING = "eating"
     LEAVING_HAPPY = "leaving_happy"
     LEAVING_ANGRY = "leaving_angry"
+    WALKING_TO_EXIT = "walking_to_exit"
 
 
 EATING_TIME = 5.0
@@ -74,6 +75,11 @@ class Customer(Entity):
         self.wealth_mult = float(customer_type["wealth_mult"])
         self.tip_range = customer_type["tip_range"]
 
+        # Exit target (entrance position, set by shop when starting exit walk)
+        self.exit_x: float = entrance_x if entrance_x is not None else x
+        self.exit_y: float = entrance_y if entrance_y is not None else y
+        self._happy: bool = False  # True if left happy (for rendering)
+
         # Tracking
         self.food_served: bool = False
         self.drink_served: bool = False
@@ -91,9 +97,15 @@ class Customer(Entity):
         return max(0.0, self.waiting_patience / self.max_waiting_patience)
 
     @property
-    def is_done(self) -> bool:
+    def is_leaving(self) -> bool:
+        """True when payment/penalty has been processed (ready to walk out)."""
         return self.state in (CustomerState.LEAVING_HAPPY,
                               CustomerState.LEAVING_ANGRY)
+
+    @property
+    def is_done(self) -> bool:
+        """True only after the customer has fully exited the shop."""
+        return self.state == CustomerState.WALKING_TO_EXIT and self._reached_exit
 
     # ── assign table to waiting customer ─────────
     def assign_table(self, table_id: int, table_x: float, table_y: float,
@@ -106,9 +118,38 @@ class Customer(Entity):
         self.y = entrance_y
         self.state = CustomerState.WALKING_TO_TABLE
 
+    @property
+    def _reached_exit(self) -> bool:
+        return (abs(self.x - self.exit_x) < 4 and
+                abs(self.y - self.exit_y) < 4)
+
+    def start_exit_walk(self, exit_x: float, exit_y: float):
+        """Begin walking to the exit after payment/penalty processed."""
+        self.exit_x = exit_x
+        self.exit_y = exit_y
+        self._happy = self.state == CustomerState.LEAVING_HAPPY
+        self.state = CustomerState.WALKING_TO_EXIT
+
     # ── update per tick ──────────────────────────
     def update(self, dt: float):
-        if self.is_done:
+        if self.state == CustomerState.WALKING_TO_EXIT:
+            dx = self.exit_x - self.x
+            dy = self.exit_y - self.y
+            dist = math.hypot(dx, dy)
+            if dist < 4:
+                self.x = self.exit_x
+                self.y = self.exit_y
+            else:
+                step = self.walk_speed * dt
+                if step >= dist:
+                    self.x = self.exit_x
+                    self.y = self.exit_y
+                else:
+                    self.x += dx / dist * step
+                    self.y += dy / dist * step
+            return
+
+        if self.is_leaving:
             return
 
         # Waiting outside (separate patience)
@@ -223,5 +264,5 @@ class Customer(Entity):
             return -1.0
         ratio = self.patience_ratio
         if ratio >= SATISFACTION_FAST_THRESHOLD:
-            return 0.5 + 0.5 * ratio
-        return 0.2 + 0.3 * ratio
+            return 0.3 + 0.3 * ratio   # max ~0.6 for very fast service
+        return 0.1 + 0.2 * ratio        # max ~0.22 for slow service

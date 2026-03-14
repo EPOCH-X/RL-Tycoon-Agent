@@ -55,6 +55,7 @@ class Renderer:
         self._draw_bar(surface, shop, offset_x, offset_y)
         self._draw_trash_cans(surface, shop, offset_x, offset_y)
         self._draw_customers(surface, shop, offset_x, offset_y)
+        self._draw_leaving_customers(surface, shop, offset_x, offset_y)
         self._draw_waiting_queue(surface, shop, offset_x, offset_y)
         self._draw_employees(surface, shop, offset_x, offset_y)
         shop.player.render(surface, self.am, offset_x, offset_y)
@@ -272,6 +273,24 @@ class Renderer:
     # ═══════════════════════════════════════════════
     #  Waiting Queue (entrance area)
     # ═══════════════════════════════════════════════
+    def _draw_leaving_customers(self, surface, shop, ox, oy):
+        """Draw customers walking to the exit after payment/penalty."""
+        for cust in shop.leaving_customers:
+            cx = cust.pixel_x + ox
+            cy = cust.pixel_y + oy
+            margin = TILE_SIZE // 5
+            body = pygame.Rect(cx + margin, cy + margin,
+                               TILE_SIZE - margin * 2, TILE_SIZE - margin * 2)
+            if cust._happy:
+                col = (100, 220, 100)  # green tint for happy
+            else:
+                col = COLORS.get("customer_angry", (220, 80, 50))
+            pygame.draw.rect(surface, col, body)
+            pygame.draw.rect(surface, (0, 0, 0), body, 1)
+            icon_text = "😊" if cust._happy else "😡"
+            icon = self.font_sm.render(icon_text, True, (255, 255, 255))
+            surface.blit(icon, icon.get_rect(center=body.center))
+
     def _draw_waiting_queue(self, surface, shop, ox, oy):
         if not shop.waiting_queue:
             return

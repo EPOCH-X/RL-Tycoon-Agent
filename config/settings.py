@@ -48,7 +48,7 @@ EMPLOYEE_ACTION_DELAY = 0.8     # seconds to complete an action (take order, etc
 CUSTOMER_WALK_SPEED = 80        # pixels per second (walk to table)
 
 # Satisfaction
-SATISFACTION_HISTORY_LEN = 20   # rolling window for shop rating
+SATISFACTION_HISTORY_LEN = 50   # rolling window for shop rating
 LOST_CUSTOMER_PENALTY = 10      # money penalty when customer leaves angry
 SATISFACTION_FAST_THRESHOLD = 0.6   # patience ratio above this → "fast"
 SATISFACTION_SLOW_THRESHOLD = 0.3   # below this → "slow"

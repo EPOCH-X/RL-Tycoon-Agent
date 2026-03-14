@@ -143,6 +143,10 @@ class Shop:
         self.satisfaction_history: deque[float] = deque(
             maxlen=SATISFACTION_HISTORY_LEN)
         self.shop_rating: float = 0.12
+        # 초기 관성: 히스토리를 초기 평점값으로 채워서 첫 손님 1명이
+        # 평점을 급등시키지 않도록 함
+        for _ in range(20):
+            self.satisfaction_history.append(self.shop_rating)
 
         # ── customer spawn ───────────────────────
         self._base_weights = [ct["spawn_weight"] for ct in self.customer_types]
@@ -156,6 +160,9 @@ class Shop:
         self.max_waiting_queue: int = MAX_WAITING_QUEUE
         self.waiting_customers_seated: int = 0
         self.waiting_customers_left: int = 0
+
+        # ── leaving customers (매장 밖으로 걸어 나가는 중) ──
+        self.leaving_customers: list[Customer] = []
 
         # ── food unlock ──────────────────────────
         self.unlocked_food: set[str] = set()
@@ -449,6 +456,8 @@ class Shop:
         self.customers_lost = 0
         self.satisfaction_history.clear()
         self.shop_rating = 0.12
+        for _ in range(20):
+            self.satisfaction_history.append(self.shop_rating)
         self.customer_spawn_timer = CUSTOMER_SPAWN_INTERVAL
         self.upgrade_mode = False
         self.upgrade_tab = 0
@@ -457,6 +466,7 @@ class Shop:
         self.waiting_queue = []
         self.waiting_customers_seated = 0
         self.waiting_customers_left = 0
+        self.leaving_customers = []
 
         for uid in self.upgrade_levels:
             self.upgrade_levels[uid] = 0
@@ -579,6 +589,9 @@ class Shop:
                 self.kitchen.remove_for_table(table.table_id)
                 if self.bartender_hired:
                     self.bar.remove_for_table(table.table_id)
+                # 테이블에서 분리 → 밖으로 걸어나가기
+                cust.start_exit_walk(self.entrance_x, self.entrance_y)
+                self.leaving_customers.append(cust)
                 table.customer = None
 
             elif cust.state == CustomerState.LEAVING_ANGRY:
@@ -599,7 +612,18 @@ class Shop:
                 orphaned += before_carry - len(self.player.carrying)
                 if orphaned > 0:
                     events.append(("orphan_cleared", float(orphaned)))
+                # 테이블에서 분리 → 밖으로 걸어나가기
+                cust.start_exit_walk(self.entrance_x, self.entrance_y)
+                self.leaving_customers.append(cust)
                 table.customer = None
+
+        # 4b) Leaving customers walk to exit
+        still_leaving: list[Customer] = []
+        for cust in self.leaving_customers:
+            cust.update(dt)
+            if not cust.is_done:
+                still_leaving.append(cust)
+        self.leaving_customers = still_leaving
 
         # 5) Employee AI
         self._update_employees(dt)
