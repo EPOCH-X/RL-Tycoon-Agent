@@ -46,6 +46,9 @@ class Employee(Entity):
         self._prev_x: float = x
         self._prev_y: float = y
 
+        # Pathfinding waypoints (set by Shop)
+        self.waypoints: list[tuple[float, float]] = []
+
     # ── movement ──────────────────────────────────
     def move_toward(self, tx: float, ty: float, dt: float,
                     can_move_fn) -> bool:
@@ -142,6 +145,7 @@ class Employee(Entity):
         self.target_table_id = None
         self.state = self.IDLE
         self._stuck_timer = 0.0
+        self.waypoints = []
 
     # ── visual ────────────────────────────────────
     def update_color(self):

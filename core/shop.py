@@ -5,14 +5,14 @@ Systems:
   - Chef system: hire chefs (1 chef = 1 dish at a time), limited by kitchen tiles
   - Tip system: satisfaction-based, customer-type-based, trait-based
   - Food unlock: net profit threshold + cost to unlock new menu items
-  - Beverage system: separate bar station for drink orders
+  - Beverage system: separate bar station for drink orders (dual food+drink)
   - Employee system: auto-waiter AI (take order, submit, pickup, serve)
-  - Delivery system: passive income via delivery orders
   - Trait system: periodic offers of permanent bonuses
   - Customer diversity: tourist, critic, VIP, etc.
-  - Scoring: net profit tracking
+  - Scoring: total sales revenue tracking
 """
 
+import heapq
 import math
 import random
 from collections import deque
@@ -60,17 +60,11 @@ class Shop:
         self.customer_types: list[dict] = customers_data
         self.upgrades_data: list[dict] = upgrades_data
 
-        # ── beverage / delivery / trait configs ───
+        # ── beverage / trait configs ─────────────
         try:
             self.beverage_config: dict = load_json_config("beverages.json")
         except Exception:
             self.beverage_config = {"unlock_profit": 999999, "items": []}
-        try:
-            self.delivery_config: dict = load_json_config("delivery.json")
-        except Exception:
-            self.delivery_config = {"unlock_profit": 999999, "order_interval": 10,
-                                     "delivery_time": 12, "price_multiplier": 0.85,
-                                     "tip_range": [3, 12]}
         try:
             self.traits_config: dict = load_json_config("traits.json")
         except Exception:
@@ -93,6 +87,16 @@ class Shop:
         self.kitchen_counter_positions: set[tuple[int, int]] = set()
         for kc in map_data.get("kitchen_counters", []):
             self.kitchen_counter_positions.add((kc["grid_x"], kc["grid_y"]))
+        self._original_kitchen_counter_positions = set(self.kitchen_counter_positions)
+
+        # ── kitchen expansion slots (floor tiles adjacent to kitchen row) ──
+        self._kitchen_expand_slots: list[tuple[int, int]] = []
+        max_kx = max((p[0] for p in self.kitchen_counter_positions), default=0)
+        ky = min((p[1] for p in self.kitchen_counter_positions), default=1)
+        for dx in range(1, 6):
+            nx = max_kx + dx
+            if 0 < nx < self.grid_width - 1 and self.layout[ky][nx] == 0:
+                self._kitchen_expand_slots.append((nx, ky))
 
         self.kitchen = Kitchen(
             cooking_capacity=KITCHEN_CAPACITY,
@@ -138,7 +142,7 @@ class Shop:
         # ── satisfaction ─────────────────────────
         self.satisfaction_history: deque[float] = deque(
             maxlen=SATISFACTION_HISTORY_LEN)
-        self.shop_rating: float = 0.5
+        self.shop_rating: float = 0.12
 
         # ── customer spawn ───────────────────────
         self._base_weights = [ct["spawn_weight"] for ct in self.customer_types]
@@ -167,11 +171,6 @@ class Shop:
         self.employees: list[Employee] = []
         self._next_emp_id: int = 1
         self._employee_speed_bonus: float = 0.0
-
-        # ── delivery system ──────────────────────
-        self.delivery_unlocked: bool = False
-        self.delivery_orders: list[dict] = []
-        self.delivery_timer: float = 0.0
 
         # ── trait system ─────────────────────────
         self.traits: dict[str, int] = {}
@@ -211,7 +210,8 @@ class Shop:
 
     @property
     def net_profit(self) -> int:
-        return self.total_earned - self.total_spent
+        """순이익 = 매장 판매 총 수입 (상점 구매 비용 미차감)."""
+        return self.total_earned
 
     @property
     def shop_rating_stars(self) -> float:
@@ -220,9 +220,9 @@ class Shop:
 
     @property
     def final_score(self) -> float:
-        """최종 스코어 = 순이익 × (1 + 평점/10).
+        """최종 스코어 = 순이익(판매총액) × (1 + 평점/10).
 
-        평점 0.0 → ×1.0 (순이익 그대로)
+        평점 0.0 → ×1.0
         평점 4.4 → ×1.44
         평점 5.0 → ×1.5 (최대 보너스)
         """
@@ -238,6 +238,65 @@ class Shop:
             and 0 <= grid_y < self.grid_height
             and self.layout[grid_y][grid_x] == 0
         )
+
+    # ── A* pathfinding for employees ─────────────
+    def _find_grid_path(
+        self, sx: int, sy: int, gx: int, gy: int,
+    ) -> list[tuple[int, int]]:
+        """A* on tile grid.  Returns path excluding start, inclusive of goal."""
+        if (sx, sy) == (gx, gy):
+            return []
+        counter = 0
+        open_set: list[tuple[int, int, int, int]] = [(0, counter, sx, sy)]
+        came_from: dict[tuple[int, int], tuple[int, int]] = {}
+        g_score: dict[tuple[int, int], int] = {(sx, sy): 0}
+        closed: set[tuple[int, int]] = set()
+
+        while open_set:
+            _, _, cx, cy = heapq.heappop(open_set)
+            if (cx, cy) in closed:
+                continue
+            closed.add((cx, cy))
+            if (cx, cy) == (gx, gy):
+                path: list[tuple[int, int]] = []
+                nx, ny = cx, cy
+                while (nx, ny) != (sx, sy):
+                    path.append((nx, ny))
+                    nx, ny = came_from[(nx, ny)]
+                path.reverse()
+                return path
+            for dx, dy in ((0, 1), (0, -1), (1, 0), (-1, 0)):
+                nx, ny = cx + dx, cy + dy
+                if (nx, ny) in closed:
+                    continue
+                if not self._is_walkable_tile(nx, ny) and (nx, ny) != (gx, gy):
+                    continue
+                new_g = g_score[(cx, cy)] + 1
+                if new_g < g_score.get((nx, ny), 999999):
+                    g_score[(nx, ny)] = new_g
+                    h = abs(nx - gx) + abs(ny - gy)
+                    counter += 1
+                    heapq.heappush(open_set, (new_g + h, counter, nx, ny))
+                    came_from[(nx, ny)] = (cx, cy)
+        return []
+
+    def _set_employee_waypoints(self, emp) -> None:
+        """Compute A* path and set intermediate waypoints on employee."""
+        if emp.target_x is None or emp.target_y is None:
+            emp.waypoints = []
+            return
+        sgx = int((emp.x + TILE_SIZE / 2) // TILE_SIZE)
+        sgy = int((emp.y + TILE_SIZE / 2) // TILE_SIZE)
+        ggx = int(emp.target_x // TILE_SIZE)
+        ggy = int(emp.target_y // TILE_SIZE)
+        path = self._find_grid_path(sgx, sgy, ggx, ggy)
+        # Intermediate waypoints only — final target is emp.target_x/y
+        if len(path) > 1:
+            emp.waypoints = [
+                self._tile_center(gx, gy) for gx, gy in path[:-1]
+            ]
+        else:
+            emp.waypoints = []
 
     def _tile_center(self, grid_x: int, grid_y: int) -> tuple[float, float]:
         return (
@@ -354,6 +413,16 @@ class Shop:
         self._purchasable_tables = list(
             self.map_data.get("purchasable_tables", []))
 
+        self.kitchen_counter_positions = set(self._original_kitchen_counter_positions)
+        # Rebuild kitchen expansion slots
+        self._kitchen_expand_slots = []
+        max_kx = max((p[0] for p in self.kitchen_counter_positions), default=0)
+        ky = min((p[1] for p in self.kitchen_counter_positions), default=1)
+        for dx in range(1, 6):
+            nx = max_kx + dx
+            if 0 < nx < self.grid_width - 1 and self._original_layout[ky][nx] == 0:
+                self._kitchen_expand_slots.append((nx, ky))
+
         self.kitchen = Kitchen(
             cooking_capacity=KITCHEN_CAPACITY,
             storage_capacity=len(self.kitchen_counter_positions))
@@ -379,7 +448,7 @@ class Shop:
         self.customers_served = 0
         self.customers_lost = 0
         self.satisfaction_history.clear()
-        self.shop_rating = 0.5
+        self.shop_rating = 0.12
         self.customer_spawn_timer = CUSTOMER_SPAWN_INTERVAL
         self.upgrade_mode = False
         self.upgrade_tab = 0
@@ -413,11 +482,6 @@ class Shop:
         self.employees = []
         self._next_emp_id = 1
         self._employee_speed_bonus = 0.0
-
-        # Delivery
-        self.delivery_unlocked = False
-        self.delivery_orders = []
-        self.delivery_timer = 0.0
 
         # Traits
         self.traits = {}
@@ -537,32 +601,23 @@ class Shop:
                     events.append(("orphan_cleared", float(orphaned)))
                 table.customer = None
 
-        # 5) Delivery-ready food from kitchen
-        while self.kitchen.delivery_ready:
-            dish = self.kitchen.delivery_ready.pop(0)
-            self._start_delivery_transport(dish)
-
-        # 6) Employee AI
+        # 5) Employee AI
         self._update_employees(dt)
 
-        # 7) Delivery system
-        if self.delivery_unlocked:
-            self._update_delivery(dt)
-
-        # 8) 손님 스폰 (만족도 기반)
+        # 6) 손님 스폰 (평점 기반 — 평점이 높을수록 손님이 많이 옴)
         self.customer_spawn_timer -= dt
         if self.customer_spawn_timer <= 0:
             spawn_events = self._try_spawn_customer()
             events.extend(spawn_events)
             base_interval = CUSTOMER_SPAWN_INTERVAL / max(0.5, self.spawn_rate_mult)
-            # 평점이 높을수록 손님이 자주 방문
-            rating_factor = max(0.6, 1.8 - self.shop_rating * 1.2)
+            # 평점이 높을수록 손님이 자주 방문 (5점 → ×0.35, 3점 → ×0.55)
+            rating_factor = max(0.35, 1.5 - self.shop_rating * 2.3)
             # 초반에는 느리게, 후반에는 점점 빨라짐
             day_factor = max(0.7, 1.3 - (self.current_day - 1) * 0.02)
             adjusted = base_interval * rating_factor * day_factor
-            self.customer_spawn_timer = max(3.0, adjusted)
+            self.customer_spawn_timer = max(2.5, adjusted)
 
-        # 8.5) 대기열 업데이트 (대기 → 착석 / 대기 → 이탈)
+        # 7) 대기열 업데이트 (대기 → 착석 / 대기 → 이탈)
         events.extend(self._update_waiting_queue(dt))
 
         # 9) 음식 자동 해금 (순이익 기반)
@@ -1022,11 +1077,11 @@ class Shop:
         ctype = self._pick_customer_type()
         menu_item = random.choice(avail)
 
-        # Optional drink order
+        # Drink order: always paired when bartender is hired
         drink_item = None
         if self.bartender_hired:
             bev = self.available_beverages
-            if bev and random.random() < 0.5:
+            if bev:
                 drink_item = random.choice(bev)
 
         # 빈 테이블 확인
@@ -1085,7 +1140,7 @@ class Shop:
             if cust.state == CustomerState.LEAVING_ANGRY:
                 self.waiting_customers_left += 1
                 self.customers_lost += 1
-                self._record_satisfaction(-0.5)  # 대기 이탈은 서빙 이탈보다 가벼운 패널티
+                # 밖에서 대기 이탈은 평점에 영향 없음
                 events.append(("waiting_customer_left", 1.0))
             else:
                 still_waiting.append(cust)
@@ -1251,6 +1306,11 @@ class Shop:
         elif etype == "cook_speed":
             self.cook_speed_mult += val
         elif etype == "kitchen_expand":
+            # Add a new kitchen counter tile visually
+            if self._kitchen_expand_slots:
+                new_pos = self._kitchen_expand_slots.pop(0)
+                self.kitchen_counter_positions.add(new_pos)
+                self.layout[new_pos[1]][new_pos[0]] = 3   # kitchen tile
             self.max_chefs += int(val)
             self.kitchen.storage_capacity += int(val)
             self._msg(f"주방 확장! (보관:{self.kitchen.storage_capacity} 최대요리사:{self.max_chefs}명)")
@@ -1270,10 +1330,6 @@ class Shop:
         elif etype == "hire_bartender":
             self.bartender_hired = True
             self._msg("바텐더 고용! 바 영업 시작!")
-        elif etype == "hire_delivery":
-            self.delivery_unlocked = True
-            self.delivery_timer = self.delivery_config.get("order_interval", 10)
-            self._msg("배달 서비스 시작!")
         elif etype == "employee_speed":
             bonus = val * EMPLOYEE_SPEED
             for emp in self.employees:
@@ -1301,7 +1357,6 @@ class Shop:
         "marketing":       4,   # 부유한 손님 = 수익 UP
         "hire_waiter":     10,  # 종업원 = 자동화 (최우선)
         "hire_bartender":  3,   # 음료 서비스
-        "hire_delivery":   2,   # 배달 = 추가 수익
         "employee_speed":  3,   # 직원 속도
     }
 
@@ -1366,12 +1421,24 @@ class Shop:
             if emp.state == Employee.IDLE:
                 self._assign_employee_task(emp)
             elif emp.state == Employee.MOVING:
-                arrived = emp.move_toward(
-                    emp.target_x, emp.target_y, dt,
-                    self._can_move_to)
-                if arrived:
-                    emp.state = Employee.ACTING
-                    emp.action_timer = EMPLOYEE_ACTION_DELAY
+                # Follow waypoints first, then final target
+                if emp.waypoints:
+                    wp_x, wp_y = emp.waypoints[0]
+                    reached = emp.move_toward(
+                        wp_x, wp_y, dt, self._can_move_to)
+                    if reached:
+                        emp.waypoints.pop(0)
+                else:
+                    arrived = emp.move_toward(
+                        emp.target_x, emp.target_y, dt,
+                        self._can_move_to)
+                    if arrived:
+                        emp.state = Employee.ACTING
+                        emp.action_timer = EMPLOYEE_ACTION_DELAY
+                # Recompute path if stuck too long
+                if emp._stuck_timer > 1.5:
+                    self._set_employee_waypoints(emp)
+                    emp._stuck_timer = 0.0
             elif emp.state == Employee.ACTING:
                 emp.action_timer -= dt
                 if emp.action_timer <= 0:
@@ -1386,9 +1453,11 @@ class Shop:
             if table and table.customer:
                 tx, ty = self.get_table_interaction_point(table, emp.x, emp.y)
                 emp.assign("serve", tx, ty, tid)
+                self._set_employee_waypoints(emp)
             elif self.trash_can_positions:
                 tcx, tcy = self._trash_center(emp.x, emp.y)
                 emp.assign("discard_trash", tcx, tcy)
+                self._set_employee_waypoints(emp)
             else:
                 emp.carrying = None
                 emp.finish_task()
@@ -1398,6 +1467,7 @@ class Shop:
         if emp.carrying and emp.carrying["type"] == "order":
             kcx, kcy = self._kitchen_center(emp.x, emp.y)
             emp.assign("submit_kitchen", kcx, kcy)
+            self._set_employee_waypoints(emp)
             return
 
         # 3. Score-based task selection considering distance
@@ -1439,6 +1509,7 @@ class Shop:
                 if table and table.customer:
                     table.customer.order_claimed = True
             emp.assign(task, tx, ty, tid)
+            self._set_employee_waypoints(emp)
 
     def _task_claimed_by_other(self, current_emp: Employee,
                                task_type: str,
@@ -1541,53 +1612,6 @@ class Shop:
             return self.get_station_interaction_point(
                 self.trash_can_positions, ref_x, ref_y)
         return TILE_SIZE * 13, TILE_SIZE * 1
-
-    # ═══════════════════════════════════════════════
-    #  Delivery System
-    # ═══════════════════════════════════════════════
-    def _update_delivery(self, dt: float):
-        # Spawn new delivery orders
-        self.delivery_timer -= dt
-        if self.delivery_timer <= 0:
-            self._spawn_delivery_order()
-            self.delivery_timer = self.delivery_config.get("order_interval", 10)
-
-        # Process active deliveries
-        done = []
-        for order in self.delivery_orders:
-            if order["state"] == "delivering":
-                order["timer"] -= dt
-                if order["timer"] <= 0:
-                    price = int(order["menu_item"]["price"]
-                                * self.delivery_config.get("price_multiplier", 0.85))
-                    tip_lo, tip_hi = self.delivery_config.get("tip_range", [3, 12])
-                    tip = random.randint(tip_lo, tip_hi)
-                    payment = price + tip
-                    self.money += payment
-                    self.total_earned += payment
-                    order["state"] = "done"
-                    done.append(order)
-        for d in done:
-            self.delivery_orders.remove(d)
-
-    def _spawn_delivery_order(self):
-        avail = self.available_menu
-        if not avail:
-            return
-        item = random.choice(avail)
-        cook_time = max(1.0, item["cook_time"] - self.cook_time_reduction)
-        ok = self.kitchen.submit_order(0, item, delivery=True,
-                                        cook_time_override=cook_time)
-        if not ok:
-            return  # kitchen full, skip
-
-    def _start_delivery_transport(self, dish: dict):
-        """Kitchen finished a delivery order → start delivery timer."""
-        self.delivery_orders.append({
-            "menu_item": dish["menu_item"],
-            "state": "delivering",
-            "timer": self.delivery_config.get("delivery_time", 12),
-        })
 
     # ═══════════════════════════════════════════════
     #  Trait System

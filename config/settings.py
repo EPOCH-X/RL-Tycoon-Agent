@@ -31,7 +31,7 @@ DAY_LENGTH = 60.0               # real seconds per in-game day
 
 CUSTOMER_SPAWN_INTERVAL = 8.0   # base seconds between spawns
 MAX_CUSTOMERS = 4               # max simultaneous seated customers
-MAX_WAITING_QUEUE = 4           # max customers waiting outside for a table
+MAX_WAITING_QUEUE = 6           # max customers waiting outside for a table
 WAITING_PATIENCE = 30.0         # seconds a customer will wait outside before leaving
 KITCHEN_CAPACITY = 1            # initial number of chefs (1 chef = 1 dish at a time)
 

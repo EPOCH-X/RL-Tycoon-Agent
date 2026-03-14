@@ -80,7 +80,7 @@
     "cost_multiplier": 2.5,
     "effect_type": "hire_waiter",
     "effect_value": 1,
-    "max_level": 2,
+    "max_level": 5,
     "unlock_profit": 350
   },
   {
@@ -96,26 +96,14 @@
     "unlock_profit": 300
   },
   {
-    "id": "hire_delivery",
-    "name": "배달기사 고용",
-    "category": "staff",
-    "description": "배달 서비스 시작",
-    "base_cost": 180,
-    "cost_multiplier": 1.0,
-    "effect_type": "hire_delivery",
-    "effect_value": 1,
-    "max_level": 1,
-    "unlock_profit": 600
-  },
-  {
     "id": "employee_speed",
     "name": "직원 속도 업",
     "category": "staff",
-    "description": "직원 이동 속도 +25%",
+    "description": "직원 이동 속도 +10%",
     "base_cost": 150,
     "cost_multiplier": 2.0,
     "effect_type": "employee_speed",
-    "effect_value": 0.25,
+    "effect_value": 0.10,
     "max_level": 3,
     "unlock_profit": 250
   }

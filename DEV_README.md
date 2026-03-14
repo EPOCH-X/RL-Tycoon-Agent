@@ -5,6 +5,23 @@
 
 ---
 
+## 최근 변경사항
+
+| 변경 내용 | 영향 파일 |
+|-----------|-----------|
+| **바텐더 듀얼 서브 시스템**: 음식+음료 모두 서빙해야 식사 시작 | customer.py, shop.py |
+| **배달 시스템 완전 삭제** | shop.py, renderer.py, gym_env.py, upgrades.json |
+| **순이익 = 매장 판매 총 수입만** (상점 구매 비용 미차감) | shop.py (`net_profit` property) |
+| **최종 스코어 = 순이익 × (1 + 평점/10)** | shop.py (`final_score` property) |
+| **직원 속도 업그레이드**: +10%/레벨, 최대 3단계(+30%) | upgrades.json |
+| **종업원 최대 3명** | upgrades.json (`hire_waiter` max_level=3) |
+| **주방 확장 시 타일 시각적 변경** (layout[y][x]=3) | shop.py (`_apply_upgrade`) |
+| **평점↑ → 손님 스폰 빨라짐** (rating_factor 공식 변경) | shop.py |
+| **대기열 최대 6명** | settings.py (`MAX_WAITING_QUEUE=6`) |
+| obs[79]: 바텐더 고용 여부만 (배달 제거됨) | gym_env.py |
+
+---
+
 ## 목차
 
 1. [엔티티(Entity) 용어 사전](#1-엔티티entity-용어-사전)
@@ -59,7 +76,7 @@
 | `"walking_to_table"` | 테이블 이동 | 입구에서 배정된 테이블로 걷어가는 중   | 🚶 아이콘         |
 | `"waiting_to_order"` | 주문 대기   | 테이블에 앉았지만 아직 주문 안 받음    | `?!` 아이콘       |
 | `"order_taken"`      | 주문 접수됨 | 주문을 받았고, 음식이 오길 기다리는 중 | 메뉴 이름 표시    |
-| `"eating"`           | 식사 중     | 음식·음료를 모두 받고 먹는 중 (5초)    | `냐냐` 텍스트     |
+| `"eating"`           | 식사 중     | 음식+음료 모두 서빙 완료 후 먹는 중 (5초) | `냐냐` 텍스트     |
 | `"leaving_happy"`    | 만족 퇴장   | 식사 후 결제하고 나가는 중             | 초록 텍스트       |
 | `"leaving_angry"`    | 화남 퇴장   | 인내심이 0이 되어 돈 안 내고 나감      | 빨간색, 벌금 -$10 |
 
@@ -88,7 +105,6 @@
 | ------------------ | ------------------- | --------------------------------------------- |
 | `cooking`          | 조리 중             | 현재 조리되고 있는 요리 리스트                |
 | `ready`            | 완성 (대기)         | 조리 완료, 서버가 수거하길 대기               |
-| `delivery_ready`   | 배달 완성           | 배달 주문 조리 완료, 배달 타이머 시작         |
 | `cooking_capacity` | 조리 슬롯           | 요리사 수 (동시 조리 가능한 최대 수)          |
 | `storage_capacity` | 보관 용량           | 주방 타일 수 (완성 요리 보관 최대 수)         |
 | `can_accept`       | 접수 가능           | 조리 중 < cooking_capacity이면 True           |
@@ -191,8 +207,7 @@
 | `"wealthy_bonus"`  | 부유 보너스   | 부유한 손님 등장 확률 +effect_value |
 | `"hire_waiter"`    | 종업원 고용   | AI 종업원 1명 추가                  |
 | `"hire_bartender"` | 바텐더 고용   | 음료 서비스 활성화                  |
-| `"hire_delivery"`  | 배달기사 고용 | 배달 서비스 활성화                  |
-| `"employee_speed"` | 직원 속도     | 모든 직원 이동속도 +effect_value%   |
+| `"employee_speed"` | 직원 속도     | 모든 직원 이동속도 +10%/레벨 (최대 3단계 +30%) |
 
 ### beverages.json 필드
 
@@ -230,16 +245,6 @@
 | `"spawn_rate"`          | 손님 방문률      | 손님 등장 빈도 +value (비율)   |
 | `"patience_bonus"`      | 인내심 보너스    | 모든 손님 인내심 +value (초)   |
 | `"base_tip"`            | 기본 팁          | 기본 팁 +value ($)             |
-
-### delivery.json 필드
-
-| 필드               | 타입       | 한글      | 설명                                 |
-| ------------------ | ---------- | --------- | ------------------------------------ |
-| `unlock_profit`    | int        | 해금 조건 | 배달 서비스 활성화 최소 순이익       |
-| `order_interval`   | float      | 주문 간격 | 배달 주문이 들어오는 간격 (초)       |
-| `delivery_time`    | float      | 배달 시간 | 조리 완료 후 배달 완료까지 (초)      |
-| `price_multiplier` | float      | 가격 배율 | 원래 메뉴 가격 × 이 값 (수수료 차감) |
-| `tip_range`        | [int, int] | 팁 범위   | 배달 팁 [최소, 최대]                 |
 
 ### map_default.json 필드
 
@@ -299,7 +304,7 @@
 | `"bar_ready"`         | (160, 100, 220) | 바 (음료 완성)     | 밝은 보라      |
 | `"employee"`          | (80, 200, 160)  | 종업원 (빈손)      | 민트색         |
 | `"employee_carry"`    | (120, 240, 190) | 종업원 (운반 중)   | 밝은 민트      |
-| `"delivery"`          | (200, 140, 60)  | 배달               | 주황-갈색      |
+| `"delivery"`          | (200, 140, 60)  | (미사용)           | 주황-갈색      |
 | `"trash_can"`         | (120, 100, 80)  | 쓰레기통           | 갈색           |
 | `"trash_can_active"`  | (160, 140, 100) | 쓰레기통 (활성)    | 밝은 갈색      |
 | `"text"`              | (255, 255, 255) | 텍스트             | 흰색           |
@@ -453,7 +458,7 @@
 │     └─ 손님 스폰                        │
 │     └─ 조리 타이머                      │
 │     └─ 종업원 AI                        │
-│     └─ 배달 타이머                      │
+│     └─ (배달 삭제됨)                    │
 │     └─ 특성 체크                        │
 │     └─ 게임 종료 체크                   │
 │                                          │
@@ -605,7 +610,7 @@ reward = -30.0 * 1.0  # = -30.0
 | 76     | can_afford       | 0.0 / 1.0                            | 구매 가능 업그레이드 존재 여부       |
 | 77     | net_profit_ratio | min(1, net_profit / target)          | 순이익 비율                          |
 | 78     | employee_count   | len(employees) / 4.0                 | 종업원 비율                          |
-| 79     | bar_delivery     | 0~1.0                                | 0.5(바) + 0.5(배달) 활성 여부        |
+| 79     | bartender_hired  | 0.0 / 1.0                            | 바텐더 고용 여부                     |
 
 ### 테이블별 6차원 (table_i)
 
@@ -693,7 +698,6 @@ python -m ai.train --config other.json # 다른 설정 파일 사용
 | `_task_claimed_by_other(emp, task, target)` | 작업 중복 방지   | 다른 직원이 동일 작업 수행 중인지 확인        |
 | `_complete_employee_task(emp)`              | 종업원 임무 완료 | 작업 실행 (주문/전달/수거/서빙/쓰레기)        |
 | `_trash_center()`                           | 쓰레기통 좌표    | 쓰레기통 중심 픽셀 좌표 반환                  |
-| `_update_delivery(dt)`                      | 배달 갱신        | 배달 주문 생성/완료/수금                      |
 | `_check_trait_offer()`                      | 특성 체크        | 5일마다 특성 팝업 활성화                      |
 | `select_trait(idx)`                         | 특성 선택        | 플레이어가 특성 선택 → 효과 적용              |
 | `get_game_result()`                         | 게임 결과        | 랭킹 저장용 게임 결과 데이터 반환             |
@@ -723,7 +727,7 @@ python -m ai.train --config other.json # 다른 설정 파일 사용
 | `config/upgrades.json`       | 업그레이드 10종 정의 (id, 카테고리, 비용, 효과, 최대레벨)                    |
 | `config/beverages.json`      | 음료 5종 정의 (id, 제조시간, 가격, 해금조건)                                 |
 | `config/traits.json`         | 특성 8종 정의 (id, 효과, 수치, 최대중첩) + 제안주기                          |
-| `config/delivery.json`       | 배달 설정 (주기, 시간, 가격배율, 팁범위)                                     |
+| `config/delivery.json`       | (미사용) 배달 시스템 삭제됨                                                  |
 | `config/map_default.json`    | 기본 맵 (16×10 그리드, 테이블/주방/바/쓰레기통 배치, 입구, 구매가능 테이블)  |
 | `config/train_config.json`   | RL 학습 설정 (하이퍼파라미터, 네트워크, 보상가중치, 게임오버라이드)          |
 | `core/entity.py`             | Entity 기본 클래스 (픽셀좌표, 그리드좌표, 스프라이트 지원)                   |

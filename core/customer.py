@@ -169,17 +169,30 @@ class Customer(Entity):
 
     # ── food served by player ────────────────────
     def serve_food(self):
-        """Serve the food item and start eating."""
+        """Serve the food item.  Starts eating only when all items served."""
         if self.state != CustomerState.ORDER_TAKEN:
             return False
         self.food_served = True
-        self.state = CustomerState.EATING
-        self.eat_timer = EATING_TIME
+        self._check_all_served()
         return True
 
     # ── drink served ─────────────────────────────
     def serve_drink(self):
+        if self.state not in (CustomerState.ORDER_TAKEN, CustomerState.EATING):
+            return False
         self.drink_served = True
+        self._check_all_served()
+        return True
+
+    def _check_all_served(self):
+        """Transition to EATING when food + drink (if any) are both served."""
+        if not self.food_served:
+            return
+        if self.drink_item and not self.drink_served:
+            return
+        if self.state != CustomerState.EATING:
+            self.state = CustomerState.EATING
+            self.eat_timer = EATING_TIME
 
     # ── backward compat alias ────────────────────
     def serve(self):

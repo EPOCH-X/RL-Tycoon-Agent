@@ -145,7 +145,7 @@ def _obs_size(shop: Shop) -> int:
         + 2                          # nearest-target direction vector (dx, dy)
         + 3                          # waiting queue: count ratio, first patience ratio, queue_full
         + 8                          # money_ratio, day_ratio, time_ratio, shop_rating,
-                                     # can_upgrade, net_profit_ratio, employee_count, bar+delivery
+                                     # can_upgrade, net_profit_ratio, employee_count, bartender
     )
 
 
@@ -270,12 +270,7 @@ def build_observation(shop: Shop) -> np.ndarray:
     obs[idx + 4] = can_buy
     obs[idx + 5] = min(1.0, shop.net_profit / max(1, shop.target_money))
     obs[idx + 6] = len(shop.employees) / 4.0
-    bar_del = 0.0
-    if shop.bartender_hired:
-        bar_del += 0.5
-    if shop.delivery_unlocked:
-        bar_del += 0.5
-    obs[idx + 7] = bar_del
+    obs[idx + 7] = 1.0 if shop.bartender_hired else 0.0
 
     return obs
 
