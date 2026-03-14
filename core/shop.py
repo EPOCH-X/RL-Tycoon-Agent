@@ -1101,11 +1101,11 @@ class Shop:
         ctype = self._pick_customer_type()
         menu_item = random.choice(avail)
 
-        # Drink order: always paired when bartender is hired
+        # Drink order: 40% chance when bartender is hired (5명 중 2명 꼴)
         drink_item = None
         if self.bartender_hired:
             bev = self.available_beverages
-            if bev:
+            if bev and random.random() < 0.4:
                 drink_item = random.choice(bev)
 
         # 빈 테이블 확인
@@ -1239,7 +1239,8 @@ class Shop:
             level = self.upgrade_levels[uid]
             maxed = level >= upg["max_level"]
             cost = (0 if maxed
-                    else int(upg["base_cost"] * (upg["cost_multiplier"] ** level)))
+                    else (upg["cost_list"][level] if "cost_list" in upg and level < len(upg["cost_list"])
+                          else int(upg["base_cost"] * (upg["cost_multiplier"] ** level))))
             locked = self.net_profit < upg.get("unlock_profit", 0)
             info.append({
                 "data": upg,
@@ -1297,7 +1298,8 @@ class Shop:
             self._msg(f"순이익 ${required} 필요!")
             return False
 
-        cost = int(upg["base_cost"] * (upg["cost_multiplier"] ** level))
+        cost = (upg["cost_list"][level] if "cost_list" in upg and level < len(upg["cost_list"])
+               else int(upg["base_cost"] * (upg["cost_multiplier"] ** level)))
         if self.money < cost:
             self._msg(f"${cost} 필요!")
             return False
@@ -1406,7 +1408,8 @@ class Shop:
             req = upg.get("unlock_profit", 0)
             if self.net_profit < req:
                 continue
-            cost = int(upg["base_cost"] * (upg["cost_multiplier"] ** level))
+            cost = (upg["cost_list"][level] if "cost_list" in upg and level < len(upg["cost_list"])
+                   else int(upg["base_cost"] * (upg["cost_multiplier"] ** level)))
             if cost > self.money:
                 continue
             priority = self._UPGRADE_PRIORITY.get(uid, 1)
