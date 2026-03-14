@@ -102,5 +102,57 @@
     "final_score": 8977.1,
     "won": false,
     "timestamp": 1773472097
+  },
+  {
+    "player_name": "Player",
+    "money": 2145,
+    "net_profit": 13614,
+    "day_limit": 30,
+    "customers_served": 295,
+    "customers_lost": 49,
+    "shop_rating": 0.4575,
+    "shop_rating_stars": 2.3,
+    "final_score": 16745.2,
+    "won": true,
+    "timestamp": 1773477973
+  },
+  {
+    "player_name": "AI",
+    "money": 26,
+    "net_profit": 1380,
+    "day_limit": 30,
+    "customers_served": 77,
+    "customers_lost": 82,
+    "shop_rating": 0.0,
+    "shop_rating_stars": 0.0,
+    "final_score": 1380.0,
+    "won": false,
+    "timestamp": 1773493108
+  },
+  {
+    "player_name": "AI",
+    "money": 237,
+    "net_profit": 6957,
+    "day_limit": 30,
+    "customers_served": 207,
+    "customers_lost": 38,
+    "shop_rating": 0.4991,
+    "shop_rating_stars": 2.5,
+    "final_score": 8696.2,
+    "won": false,
+    "timestamp": 1773503465
+  },
+  {
+    "player_name": "Player",
+    "money": 12044,
+    "net_profit": 23812,
+    "day_limit": 30,
+    "customers_served": 459,
+    "customers_lost": 15,
+    "shop_rating": 0.5365,
+    "shop_rating_stars": 2.7,
+    "final_score": 30241.2,
+    "won": true,
+    "timestamp": 1773506746
   }
 ]

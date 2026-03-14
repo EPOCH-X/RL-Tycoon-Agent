@@ -1,0 +1,62 @@
+{
+  "_comment": "Model-Based RL 설정 (60일 모드). config.json(30일)과 동일하되 day_limit=60.",
+  "algorithm": "ModelBased",
+  "policy": "MlpPolicy",
+
+  "training": {
+    "total_timesteps": 300000,
+    "seed": 42,
+    "eval_freq": 5000,
+    "world_model_train_freq": 1000,
+    "world_model_epochs": 10,
+    "world_model_batch_size": 128,
+    "planning_horizon": 10,
+    "num_simulated_trajectories": 100,
+    "real_data_ratio": 0.5,
+    "buffer_size": 100000
+  },
+
+  "hyperparameters": {
+    "learning_rate": 3e-4,
+    "gamma": 0.99,
+    "world_model_lr": 1e-3,
+    "world_model_hidden": [256, 256],
+    "policy_hidden": [128, 128]
+  },
+
+  "network": {
+    "net_arch": [128, 128],
+    "activation_fn": "relu"
+  },
+
+  "reward_shaping": {
+    "take_order": 8.0,
+    "submit_kitchen": 5.0,
+    "pickup_food": 5.0,
+    "serve_food": 15.0,
+    "pickup_drink": 3.0,
+    "serve_drink": 8.0,
+    "customer_payment": 1.0,
+    "lost_customer": -15.0,
+    "wrong_table": -2.0,
+    "trash": -1.0,
+    "trash_orphan": 0.5,
+    "orphan_cleared": 0.0,
+    "blocked_move": -0.1,
+    "idle_penalty": -0.3,
+    "time_penalty": -0.02,
+    "buy_upgrade": 2.0,
+    "food_unlock": 0.3,
+    "no_upgrade": 0.0,
+    "win": 200.0,
+    "game_end": 0.01,
+    "net_profit_delta": 0.2,
+    "rating_delta": 10.0,
+    "final_score_delta": 0.05
+  },
+
+  "game_overrides": {
+    "target_money": null,
+    "day_limit": 60
+  }
+}

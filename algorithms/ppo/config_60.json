@@ -1,29 +1,31 @@
 {
-  "_comment": "A3C 전용 하이퍼파라미터. PyTorch 직접 구현 (비동기 학습).",
-  "algorithm": "A3C",
+  "_comment": "PPO 전용 하이퍼파라미터 (60일 모드). config.json(30일)과 동일하되 day_limit=60.",
+  "algorithm": "PPO",
   "policy": "MlpPolicy",
 
   "training": {
-    "total_timesteps": 300000,
-    "n_workers": 8,
+    "total_timesteps": 10000000,
+    "n_envs": 8,
     "seed": 42,
-    "eval_freq": 5000,
-    "max_episode_steps": 10000
+    "eval_freq": 5000
   },
 
   "hyperparameters": {
     "learning_rate": 3e-4,
+    "n_steps": 2048,
+    "batch_size": 128,
+    "n_epochs": 10,
     "gamma": 0.99,
     "gae_lambda": 0.95,
-    "entropy_coef": 0.01,
-    "value_loss_coef": 0.5,
-    "max_grad_norm": 40.0,
-    "n_steps": 20
+    "clip_range": 0.2,
+    "ent_coef": 0.01,
+    "vf_coef": 0.5,
+    "max_grad_norm": 0.5
   },
 
   "network": {
-    "net_arch": [128, 128],
-    "activation_fn": "relu"
+    "net_arch": [256, 256],
+    "activation_fn": "tanh"
   },
 
   "reward_shaping": {
@@ -45,9 +47,6 @@
     "buy_upgrade": 5.0,
     "food_unlock": 0.2,
     "no_upgrade": -0.02,
-    "customer_waiting": -0.3,
-    "waiting_customer_seated": 3.0,
-    "waiting_customer_left": -8.0,
     "win": 200.0,
     "game_end": 0.01,
     "net_profit_delta": 0.2,
@@ -57,6 +56,6 @@
 
   "game_overrides": {
     "target_money": null,
-    "day_limit": null
+    "day_limit": 60
   }
 }

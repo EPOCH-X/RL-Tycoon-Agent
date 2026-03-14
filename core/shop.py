@@ -164,6 +164,9 @@ class Shop:
         # ── leaving customers (매장 밖으로 걸어 나가는 중) ──
         self.leaving_customers: list[Customer] = []
 
+        # ── floating texts (결제 금액 등 UI 표시) ──
+        self.floating_texts: list[dict] = []
+
         # ── food unlock ──────────────────────────
         self.unlocked_food: set[str] = set()
         for item in self.menu:
@@ -467,6 +470,7 @@ class Shop:
         self.waiting_customers_seated = 0
         self.waiting_customers_left = 0
         self.leaving_customers = []
+        self.floating_texts = []
 
         for uid in self.upgrade_levels:
             self.upgrade_levels[uid] = 0
@@ -585,6 +589,13 @@ class Shop:
                 self._record_satisfaction(cust.calc_satisfaction())
                 self.customers_served += 1
                 events.append(("customer_payment", float(payment)))
+                # +$X 플로팅 텍스트
+                self.floating_texts.append({
+                    "text": f"+${payment}",
+                    "x": table.grid_x * TILE_SIZE + TILE_SIZE // 2,
+                    "y": table.grid_y * TILE_SIZE,
+                    "timer": 1.2,
+                })
                 # 떠난 손님 관련 잔여 음식 정리 (안전장치)
                 self.kitchen.remove_for_table(table.table_id)
                 if self.bartender_hired:
@@ -624,6 +635,12 @@ class Shop:
             if not cust.is_done:
                 still_leaving.append(cust)
         self.leaving_customers = still_leaving
+
+        # 4c) Floating texts tick
+        for ft in self.floating_texts:
+            ft["timer"] -= dt
+            ft["y"] -= 30 * dt          # float upward
+        self.floating_texts = [ft for ft in self.floating_texts if ft["timer"] > 0]
 
         # 5) Employee AI
         self._update_employees(dt)

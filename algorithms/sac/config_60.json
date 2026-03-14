@@ -1,0 +1,64 @@
+{
+  "_comment": "SAC (Soft Actor-Critic) Discrete 전용 설정 (60일 모드). config.json(30일)과 동일하되 day_limit=60.",
+  "algorithm": "SAC",
+  "policy": "MlpPolicy",
+
+  "training": {
+    "total_timesteps": 300000,
+    "n_envs": 1,
+    "seed": 42,
+    "eval_freq": 5000
+  },
+
+  "hyperparameters": {
+    "learning_rate": 3e-4,
+    "buffer_size": 100000,
+    "learning_starts": 500,
+    "batch_size": 256,
+    "gamma": 0.99,
+    "tau": 0.005,
+    "train_freq": 1,
+    "gradient_steps": 1,
+    "ent_coef": "auto",
+    "target_entropy": "auto"
+  },
+
+  "network": {
+    "net_arch": [256, 256],
+    "activation_fn": "relu"
+  },
+
+  "reward_shaping": {
+    "take_order": 8.0,
+    "submit_kitchen": 5.0,
+    "pickup_food": 5.0,
+    "serve_food": 15.0,
+    "pickup_drink": 3.0,
+    "serve_drink": 8.0,
+    "customer_payment": 1.0,
+    "lost_customer": -15.0,
+    "wrong_table": -2.0,
+    "trash": -1.0,
+    "trash_orphan": 0.5,
+    "orphan_cleared": 0.0,
+    "blocked_move": -0.1,
+    "idle_penalty": -0.3,
+    "time_penalty": -0.02,
+    "buy_upgrade": 2.0,
+    "food_unlock": 0.3,
+    "no_upgrade": 0.0,
+    "customer_waiting": -0.3,
+    "waiting_customer_seated": 3.0,
+    "waiting_customer_left": -8.0,
+    "win": 200.0,
+    "game_end": 0.01,
+    "net_profit_delta": 0.2,
+    "rating_delta": 10.0,
+    "final_score_delta": 0.05
+  },
+
+  "game_overrides": {
+    "target_money": null,
+    "day_limit": 60
+  }
+}

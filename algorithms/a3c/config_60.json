@@ -1,5 +1,5 @@
 {
-  "_comment": "A3C 전용 하이퍼파라미터. PyTorch 직접 구현 (비동기 학습).",
+  "_comment": "A3C 전용 하이퍼파라미터 (60일 모드). config.json(30일)과 동일하되 day_limit=60.",
   "algorithm": "A3C",
   "policy": "MlpPolicy",
 
@@ -8,7 +8,7 @@
     "n_workers": 8,
     "seed": 42,
     "eval_freq": 5000,
-    "max_episode_steps": 10000
+    "max_episode_steps": 20000
   },
 
   "hyperparameters": {
@@ -57,6 +57,6 @@
 
   "game_overrides": {
     "target_money": null,
-    "day_limit": null
+    "day_limit": 60
   }
 }
