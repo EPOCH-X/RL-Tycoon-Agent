@@ -7,6 +7,8 @@ The agent controls the shop autonomously while you watch.
   ↑/↓   – adjust speed (×0.5 ~ ×10)
 """
 
+import json
+import os
 import pygame
 import numpy as np
 
@@ -30,6 +32,17 @@ class WatchMode(BaseMode):
     def __init__(self, *, model_path=None, algo_name=None,
                  target_money=None, day_limit=None,
                  speed_multiplier: float = 1.0):
+        # Auto-detect day_limit from saved model config if not specified
+        if day_limit is None and model_path:
+            cfg_path = os.path.join(os.path.dirname(model_path),
+                                    "train_config_used.json")
+            if os.path.isfile(cfg_path):
+                with open(cfg_path, encoding="utf-8") as f:
+                    tcfg = json.load(f)
+                ov = tcfg.get("game_overrides", {})
+                if ov.get("day_limit") is not None:
+                    day_limit = ov["day_limit"]
+
         self.shop = Shop(target_money=target_money, day_limit=day_limit)
         w = self.shop.grid_width * TILE_SIZE
         h = self.shop.grid_height * TILE_SIZE + UI_HEIGHT

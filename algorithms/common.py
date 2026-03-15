@@ -51,6 +51,13 @@ def get_sb3_device(policy: str = "MlpPolicy") -> str:
     return "cpu"
 
 
+def linear_schedule(initial_value: float):
+    """SB3용 선형 학습률 스케줄. progress_remaining 1→0에 따라 lr이 선형 감소."""
+    def schedule(progress_remaining: float) -> float:
+        return progress_remaining * initial_value
+    return schedule
+
+
 def load_algo_config(algo_name: str, config_path: str | None = None,
                      days: int | None = None) -> dict:
     """알고리즘별 설정 JSON을 로드합니다.

@@ -2,7 +2,6 @@
   "_comment": "A3C 전용 하이퍼파라미터 (60일 모드). config.json(30일)과 동일하되 day_limit=60.",
   "algorithm": "A3C",
   "policy": "MlpPolicy",
-
   "training": {
     "total_timesteps": 300000,
     "n_workers": 8,
@@ -10,9 +9,8 @@
     "eval_freq": 5000,
     "max_episode_steps": 20000
   },
-
   "hyperparameters": {
-    "learning_rate": 3e-4,
+    "learning_rate": 0.0003,
     "gamma": 0.99,
     "gae_lambda": 0.95,
     "entropy_coef": 0.01,
@@ -20,12 +18,13 @@
     "max_grad_norm": 40.0,
     "n_steps": 20
   },
-
   "network": {
-    "net_arch": [128, 128],
+    "net_arch": [
+      128,
+      128
+    ],
     "activation_fn": "relu"
   },
-
   "reward_shaping": {
     "take_order": 6.0,
     "submit_kitchen": 5.0,
@@ -54,7 +53,6 @@
     "rating_delta": 10.0,
     "final_score_delta": 0.05
   },
-
   "game_overrides": {
     "target_money": null,
     "day_limit": 60

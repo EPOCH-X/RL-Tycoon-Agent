@@ -14,7 +14,7 @@ from algorithms.common import (
     load_algo_config, make_vec_env, build_policy_kwargs,
     save_run_config, get_sb3_device, KoreanEvalStopCallback,
     TrainingDiagnosticsCallback,
-    print_metric_reference,
+    print_metric_reference, linear_schedule,
 )
 
 
@@ -58,11 +58,19 @@ class PPOTrainer(BaseTrainer):
         policy_type = self.cfg.get("policy", "MlpPolicy")
         device = get_sb3_device(policy_type)
 
+        # Learning rate: constant or linear schedule
+        base_lr = hp.get("learning_rate", 3e-4)
+        lr_schedule = hp.get("lr_schedule", "constant")
+        if lr_schedule == "linear":
+            learning_rate = linear_schedule(base_lr)
+        else:
+            learning_rate = base_lr
+
         self.model = PPO(
             policy_type,
             self.train_env,
             verbose=1,
-            learning_rate=hp.get("learning_rate", 3e-4),
+            learning_rate=learning_rate,
             n_steps=hp.get("n_steps", 2048),
             batch_size=hp.get("batch_size", 64),
             n_epochs=hp.get("n_epochs", 10),
@@ -78,15 +86,16 @@ class PPOTrainer(BaseTrainer):
             device=device,
         )
 
+        patience = t.get("patience", 150)
         self._eval_cb = EvalCallback(
             self.eval_env,
             best_model_save_path=self.save_path,
             log_path=os.path.join(self.save_path, "eval_logs"),
             eval_freq=eval_freq,
-            deterministic=True,
+            deterministic=False,
             verbose=0,
             callback_after_eval=KoreanEvalStopCallback(
-                patience=50, min_delta=1.0, verbose=1),
+                patience=patience, min_delta=1.0, verbose=1),
         )
 
     # ── train ────────────────────────────────────
