@@ -31,6 +31,8 @@ DAY_LENGTH = 60.0               # real seconds per in-game day
 
 CUSTOMER_SPAWN_INTERVAL = 8.0   # base seconds between spawns
 MAX_CUSTOMERS = 4               # max simultaneous seated customers
+MAX_WAITING_QUEUE = 6           # max customers waiting outside for a table
+WAITING_PATIENCE = 30.0         # seconds a customer will wait outside before leaving
 KITCHEN_CAPACITY = 1            # initial number of chefs (1 chef = 1 dish at a time)
 
 # Player movement (distance-based, not grid)
@@ -46,7 +48,7 @@ EMPLOYEE_ACTION_DELAY = 0.8     # seconds to complete an action (take order, etc
 CUSTOMER_WALK_SPEED = 80        # pixels per second (walk to table)
 
 # Satisfaction
-SATISFACTION_HISTORY_LEN = 20   # rolling window for shop rating
+SATISFACTION_HISTORY_LEN = 50   # rolling window for shop rating
 LOST_CUSTOMER_PENALTY = 10      # money penalty when customer leaves angry
 SATISFACTION_FAST_THRESHOLD = 0.6   # patience ratio above this → "fast"
 SATISFACTION_SLOW_THRESHOLD = 0.3   # below this → "slow"
@@ -91,6 +93,7 @@ COLORS = {
     "delivery":         (200, 140, 60),
     "trash_can":        (120, 100, 80),
     "trash_can_active": (160, 140, 100),
+    "customer_waiting": (180, 160, 50),
     "text":             (255, 255, 255),
     "ui_bg":            (30,  30,  50),
     "money":            (255, 215, 0),

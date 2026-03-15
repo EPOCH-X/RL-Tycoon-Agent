@@ -1,5 +1,5 @@
 {
-  "offer_interval_days": 5,
+  "offer_interval_days": 4,
   "choices_per_offer": 3,
   "traits": [
     {

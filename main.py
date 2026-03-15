@@ -1,11 +1,4 @@
-"""RL Tycoon – entry point.
-
-Launch the game in one of two modes:
-    python main.py --mode human          # solo play
-    python main.py --mode ai             # AI solo observation
-    python main.py --mode versus         # human vs AI
-    python main.py --mode versus --model models/best_model.zip
-"""
+"""RL Tycoon entry point."""
 
 import argparse
 import sys
@@ -14,11 +7,14 @@ import sys
 def main():
     parser = argparse.ArgumentParser(description="RL Tycoon Game")
     parser.add_argument(
-        "--mode", choices=["human", "ai", "versus"], default="human",
+        "--mode", choices=["human", "ai", "versus", "watch"], default="human",
         help="Game mode (default: human)")
     parser.add_argument(
         "--model", type=str, default=None,
-        help="Path to a trained SB3 model zip (for versus mode)")
+        help="Path to a trained model")
+    parser.add_argument(
+        "--algo", type=str, default=None,
+        help="Algorithm name for watch mode (PPO, DQN, A3C, SAC, etc.)")
     parser.add_argument(
         "--target-money", type=int, default=None,
         help="Target money to win (default: 5000)")
@@ -27,7 +23,7 @@ def main():
         help="Number of in-game days (default: 30)")
     parser.add_argument(
         "--speed", type=float, default=1.0,
-        help="Simulation speed multiplier for observation (default: 1.0)")
+        help="Simulation speed multiplier (default: 1.0)")
     parser.add_argument(
         "--rule-controller", action="store_true",
         help="Enable rule-based live controller overrides for stale carry/upgrades")
@@ -36,23 +32,38 @@ def main():
 
     if args.mode == "human":
         from modes.human_mode import HumanMode
-        game = HumanMode(target_money=args.target_money,
-                         day_limit=args.day_limit,
-                         time_scale=args.speed)
+        game = HumanMode(
+            target_money=args.target_money,
+            day_limit=args.day_limit,
+            time_scale=args.speed,
+        )
     elif args.mode == "ai":
         from modes.ai_mode import AIMode
-        game = AIMode(model_path=args.model,
-                      target_money=args.target_money,
-                      day_limit=args.day_limit,
-                      time_scale=args.speed,
-                      use_rule_controller=args.rule_controller)
+        game = AIMode(
+            model_path=args.model,
+            target_money=args.target_money,
+            day_limit=args.day_limit,
+            time_scale=args.speed,
+            use_rule_controller=args.rule_controller,
+        )
     elif args.mode == "versus":
         from modes.versus_mode import VersusMode
-        game = VersusMode(model_path=args.model,
-                          target_money=args.target_money,
-                          day_limit=args.day_limit,
-                          time_scale=args.speed,
-                          use_rule_controller=args.rule_controller)
+        game = VersusMode(
+            model_path=args.model,
+            target_money=args.target_money,
+            day_limit=args.day_limit,
+            time_scale=args.speed,
+            use_rule_controller=args.rule_controller,
+        )
+    elif args.mode == "watch":
+        from modes.watch_mode import WatchMode
+        game = WatchMode(
+            model_path=args.model,
+            algo_name=args.algo,
+            target_money=args.target_money,
+            day_limit=args.day_limit,
+            speed_multiplier=args.speed,
+        )
     else:
         print(f"Unknown mode: {args.mode}", file=sys.stderr)
         sys.exit(1)

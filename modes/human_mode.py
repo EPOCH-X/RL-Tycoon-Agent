@@ -122,7 +122,7 @@ class HumanMode(BaseMode):
                 result = self.shop.get_game_result()
                 self.ranking.record_result("Player", result)
                 rank = self.ranking.get_rank(
-                    self.shop.money, self.shop.day_limit)
+                    self.shop.final_score, self.shop.day_limit)
                 self._rank_text = f"랭킹: #{rank}"
                 self._result_recorded = True
             self.renderer.draw_game_over(

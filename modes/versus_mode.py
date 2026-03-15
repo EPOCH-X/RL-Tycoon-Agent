@@ -148,9 +148,11 @@ class VersusMode(BaseMode):
             self.winner = "ai"
             self.human_shop.done = True
         elif self.human_shop.done and self.ai_shop.done:
-            if self.human_shop.money > self.ai_shop.money:
+            h_score = self.human_shop.final_score
+            a_score = self.ai_shop.final_score
+            if h_score > a_score:
                 self.winner = "human"
-            elif self.ai_shop.money > self.human_shop.money:
+            elif a_score > h_score:
                 self.winner = "ai"
             else:
                 self.winner = "draw"

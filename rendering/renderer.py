@@ -55,8 +55,11 @@ class Renderer:
         self._draw_bar(surface, shop, offset_x, offset_y)
         self._draw_trash_cans(surface, shop, offset_x, offset_y)
         self._draw_customers(surface, shop, offset_x, offset_y)
+        self._draw_leaving_customers(surface, shop, offset_x, offset_y)
+        self._draw_waiting_queue(surface, shop, offset_x, offset_y)
         self._draw_employees(surface, shop, offset_x, offset_y)
         shop.player.render(surface, self.am, offset_x, offset_y)
+        self._draw_carry_labels(surface, shop, offset_x, offset_y)
         self._draw_ui(surface, shop, offset_x, offset_y)
         self._draw_upgrade_panel(surface, shop, offset_x, offset_y)
         self._draw_trait_popup(surface, shop, offset_x, offset_y)
@@ -112,54 +115,96 @@ class Renderer:
             surface.blit(lbl, lbl.get_rect(center=rect.center))
 
     # ═══════════════════════════════════════════════
-    #  Kitchen counters
+    #  Kitchen counters (per-tile: chef + food name + gauge)
     # ═══════════════════════════════════════════════
     def _draw_kitchen(self, surface, shop, ox, oy):
         kitchen = shop.kitchen
-        for pos in shop.kitchen_counter_positions:
+        positions = sorted(shop.kitchen_counter_positions)
+
+        # Assign items to tiles: cooking first, then ready
+        tile_slots: list[tuple[str, dict] | None] = [None] * len(positions)
+        idx = 0
+        for order in kitchen.cooking:
+            if idx < len(tile_slots):
+                tile_slots[idx] = ("cooking", order)
+                idx += 1
+        for item in kitchen.ready:
+            if idx < len(tile_slots):
+                tile_slots[idx] = ("ready", item)
+                idx += 1
+
+        for i, pos in enumerate(positions):
             rect = pygame.Rect(pos[0] * TILE_SIZE + ox,
                                pos[1] * TILE_SIZE + oy,
                                TILE_SIZE, TILE_SIZE)
-            if kitchen.has_ready:
+            slot = tile_slots[i] if i < len(tile_slots) else None
+
+            # Tile background colour
+            if slot and slot[0] == "ready":
                 col = COLORS["kitchen_ready"]
-            elif kitchen.num_cooking > 0:
+            elif slot and slot[0] == "cooking":
                 col = COLORS["kitchen_cooking"]
             else:
                 col = COLORS["kitchen"]
             pygame.draw.rect(surface, col, rect)
             pygame.draw.rect(surface, COLORS["grid_line"], rect, 1)
 
-        # Status label on first kitchen tile
-        if shop.kitchen_counter_positions:
-            first = min(shop.kitchen_counter_positions)
-            rx = first[0] * TILE_SIZE + ox
-            ry = first[1] * TILE_SIZE + oy
+            if slot is None:
+                continue
 
-            if kitchen.num_cooking > 0:
-                ct = self.font_sm.render(
-                    f"조리:{kitchen.num_cooking}", True, COLORS["text"])
-                surface.blit(ct, (rx + 2, ry + 2))
+            state, data = slot
 
-            if kitchen.has_ready:
-                rt = self.font_sm.render(
-                    f"완성:{len(kitchen.ready)}", True, (255, 255, 100))
-                surface.blit(rt, (rx + 2, ry + TILE_SIZE - 16))
+            if state == "cooking":
+                # Chef indicator (small yellow circle)
+                pygame.draw.circle(
+                    surface, (255, 220, 130),
+                    (rect.x + 12, rect.y + 12), 7)
+                pygame.draw.circle(
+                    surface, (180, 140, 60),
+                    (rect.x + 12, rect.y + 12), 7, 1)
 
-            bar_x = rx + TILE_SIZE + 4
-            for i, order in enumerate(kitchen.cooking):
-                if i >= 3:
-                    break
-                total = order["menu_item"]["cook_time"]
-                ratio = 1.0 - order["timer"] / total if total else 1.0
-                by = ry + i * 18
+                # Food name (Korean)
+                name = data["menu_item"]["name"]
+                nm = self.font_sm.render(name[:4], True, (255, 255, 255))
+                surface.blit(nm, nm.get_rect(
+                    centerx=rect.centerx, top=rect.y + 4))
+
+                # Table ID
+                tid = self.font_sm.render(
+                    f"T{data['table_id']}", True, (180, 180, 180))
+                surface.blit(tid, (rect.right - 22, rect.y + 4))
+
+                # Progress bar
+                total = data["menu_item"]["cook_time"]
+                ratio = max(0.0, 1.0 - data["timer"] / total) if total else 1.0
                 bw = TILE_SIZE - 8
-                nm = self.font_sm.render(
-                    order["menu_item"]["name"][:4], True, (200, 200, 200))
-                surface.blit(nm, (bar_x, by))
-                bbx = bar_x + 56
-                pygame.draw.rect(surface, (60, 60, 60), (bbx, by + 2, bw, 8))
+                bx = rect.x + 4
+                by = rect.bottom - 12
+                pygame.draw.rect(surface, (60, 60, 60), (bx, by, bw, 8))
                 pygame.draw.rect(surface, (80, 220, 80),
-                                 (bbx, by + 2, int(bw * ratio), 8))
+                                 (bx, by, int(bw * ratio), 8))
+
+                # Percentage text
+                pct = self.font_sm.render(
+                    f"{int(ratio * 100)}%", True, (200, 200, 200))
+                surface.blit(pct, pct.get_rect(
+                    centerx=rect.centerx, bottom=rect.bottom - 14))
+
+            elif state == "ready":
+                # "완성" label
+                done = self.font_sm.render("완성", True, (255, 200, 80))
+                surface.blit(done, (rect.x + 2, rect.y + 2))
+
+                # Food name (Korean)
+                name = data["menu_item"]["name"]
+                nm = self.font_sm.render(name[:4], True, (255, 255, 100))
+                surface.blit(nm, nm.get_rect(center=rect.center))
+
+                # Table ID
+                tid = self.font_sm.render(
+                    f"T{data['table_id']}", True, (180, 180, 180))
+                surface.blit(tid, tid.get_rect(
+                    centerx=rect.centerx, bottom=rect.bottom - 4))
 
     # ═══════════════════════════════════════════════
     #  Trash cans
@@ -226,6 +271,58 @@ class Renderer:
                     pygame.draw.rect(surface, bcol, (bx, by, fw, bh))
 
     # ═══════════════════════════════════════════════
+    #  Waiting Queue (entrance area)
+    # ═══════════════════════════════════════════════
+    def _draw_leaving_customers(self, surface, shop, ox, oy):
+        """Draw customers walking to the exit after payment/penalty."""
+        for cust in shop.leaving_customers:
+            cx = cust.pixel_x + ox
+            cy = cust.pixel_y + oy
+            margin = TILE_SIZE // 5
+            body = pygame.Rect(cx + margin, cy + margin,
+                               TILE_SIZE - margin * 2, TILE_SIZE - margin * 2)
+            if cust._happy:
+                col = (100, 220, 100)  # green tint for happy
+            else:
+                col = COLORS.get("customer_angry", (220, 80, 50))
+            pygame.draw.rect(surface, col, body)
+            pygame.draw.rect(surface, (0, 0, 0), body, 1)
+            icon_text = "😊" if cust._happy else "😡"
+            icon = self.font_sm.render(icon_text, True, (255, 255, 255))
+            surface.blit(icon, icon.get_rect(center=body.center))
+
+    def _draw_waiting_queue(self, surface, shop, ox, oy):
+        if not shop.waiting_queue:
+            return
+        ex = int(shop.entrance_x) + ox
+        ey = int(shop.entrance_y) + oy
+        # Draw each waiting customer in a row near the entrance
+        for i, cust in enumerate(shop.waiting_queue):
+            # Stack vertically below entrance, offset by index
+            cx = ex + (i % 2) * (TILE_SIZE + 4)
+            cy = ey + (i // 2) * (TILE_SIZE + 4)
+            body = pygame.Rect(cx + 8, cy + 8, TILE_SIZE - 16, TILE_SIZE - 16)
+            pygame.draw.rect(surface, cust.color, body)
+            pygame.draw.rect(surface, (0, 0, 0), body, 1)
+            icon = self.font_sm.render("...", True, (200, 200, 200))
+            surface.blit(icon, icon.get_rect(center=body.center))
+            # Patience bar
+            bw = TILE_SIZE - 16
+            bh = 3
+            bx = cx + 8
+            by = cy + TILE_SIZE - 10
+            pygame.draw.rect(surface, (60, 60, 60), (bx, by, bw, bh))
+            ratio = cust.waiting_patience_ratio
+            fw = int(bw * ratio)
+            if fw > 0:
+                bcol = (int(255 * (1 - ratio)), int(255 * ratio), 0)
+                pygame.draw.rect(surface, bcol, (bx, by, fw, bh))
+        # Queue count label
+        qlbl = self.font_sm.render(
+            f"대기:{len(shop.waiting_queue)}", True, (255, 200, 80))
+        surface.blit(qlbl, (ex, ey - 14))
+
+    # ═══════════════════════════════════════════════
     #  Bottom UI panel
     # ═══════════════════════════════════════════════
     def _draw_ui(self, surface, shop, ox, oy):
@@ -236,7 +333,7 @@ class Renderer:
 
         y0 = ui_y + 8
 
-        # ── money + net profit ───────────────────
+        # ── money + net profit (순이익=판매총액) ────
         mtxt = self.font_md.render(
             f"${shop.money}  (순이익: ${shop.net_profit})",
             True, COLORS["money"])
@@ -252,9 +349,9 @@ class Renderer:
             centerx=ox + map_w // 2, top=y0))
 
         # ── satisfaction ─────────────────────────
-        rating_pct = int(shop.shop_rating * 100)
+        rating_stars = shop.shop_rating_stars
         stxt = self.font_md.render(
-            f"평점: {rating_pct}%", True, COLORS["satisfaction"])
+            f"평점: {rating_stars:.1f}/5.0★", True, COLORS["satisfaction"])
         surface.blit(stxt, stxt.get_rect(right=ox + map_w - 10, top=y0))
 
         # ── carrying indicator ───────────────────
@@ -282,15 +379,16 @@ class Renderer:
             f"서빙:{shop.customers_served}",
             f"이탈:{shop.customers_lost}",
             f"요리사:{shop.num_chefs}/{shop.max_chefs}",
-            f"조리:{shop.kitchen.num_cooking}/{shop.kitchen.capacity}",
+            f"조리:{shop.kitchen.num_cooking}/{shop.kitchen.cooking_capacity}",
+            f"보관:{len(shop.kitchen.ready)}/{shop.kitchen.storage_capacity}",
             f"테이블:{len(shop.tables)}",
         ]
+        if shop.waiting_queue:
+            parts2.append(f"대기:{len(shop.waiting_queue)}")
         if shop.employees:
             parts2.append(f"직원:{len(shop.employees)}")
         if shop.bartender_hired:
             parts2.append(f"바:{shop.bar.num_preparing}")
-        if shop.delivery_unlocked:
-            parts2.append(f"배달:{len(shop.delivery_orders)}")
         parts2.append("[U] 상점")
         stat = self.font_sm.render("  ".join(parts2), True, (150, 150, 150))
         surface.blit(stat, (ox + 10, y1 + 18))
@@ -359,6 +457,10 @@ class Renderer:
             elif maxed:
                 key_col = (60, 60, 60)
                 key_str = "[v]"
+            elif is_food:
+                # 자동 해금 — 구매 불가
+                key_col = (200, 200, 100)
+                key_str = "[~]"
             elif can_afford:
                 key_col = (100, 255, 100)
                 key_str = f"[{i + 1}]"
@@ -375,10 +477,12 @@ class Renderer:
                     nm_str += "  [해금됨]"
                     nm_col = (80, 180, 80)
                 elif locked:
-                    nm_str += f"  (순이익 ${data.get('unlock_profit', 0)} 필요)"
+                    req = entry.get("unlock_profit_req", data.get("unlock_profit", 0))
+                    nm_str += f"  (순이익 ${req} 필요)"
                     nm_col = (100, 100, 100)
                 else:
-                    nm_col = (255, 255, 255) if can_afford else (180, 120, 120)
+                    nm_str += "  [자동 해금 대기]"
+                    nm_col = (200, 200, 100)
             else:
                 level = entry["level"]
                 if maxed:
@@ -394,8 +498,8 @@ class Renderer:
             nm = self.font_md.render(nm_str, True, nm_col)
             surface.blit(nm, (panel_x + 50, ey))
 
-            # Cost
-            if not maxed and not locked:
+            # Cost (food items are auto-unlocked, no cost shown)
+            if not maxed and not locked and not is_food:
                 cost_col = (100, 255, 100) if can_afford else (255, 100, 100)
                 ct = self.font_sm.render(f"${cost}", True, cost_col)
                 surface.blit(ct, (panel_x + 50, ey + 22))
@@ -419,35 +523,88 @@ class Renderer:
     # ═══════════════════════════════════════════════
     def _draw_bar(self, surface, shop, ox, oy):
         bar = shop.bar
-        for pos in shop.bar_counter_positions:
+        positions = sorted(shop.bar_counter_positions)
+
+        if not shop.bartender_hired:
+            for pos in positions:
+                rect = pygame.Rect(pos[0] * TILE_SIZE + ox,
+                                   pos[1] * TILE_SIZE + oy,
+                                   TILE_SIZE, TILE_SIZE)
+                pygame.draw.rect(surface, (60, 40, 80), rect)
+                pygame.draw.rect(surface, COLORS["grid_line"], rect, 1)
+            return
+
+        # Assign items to tiles: preparing first, then ready
+        tile_slots: list[tuple[str, dict] | None] = [None] * len(positions)
+        idx = 0
+        for order in bar.preparing:
+            if idx < len(tile_slots):
+                tile_slots[idx] = ("preparing", order)
+                idx += 1
+        for item in bar.ready:
+            if idx < len(tile_slots):
+                tile_slots[idx] = ("ready", item)
+                idx += 1
+
+        for i, pos in enumerate(positions):
             rect = pygame.Rect(pos[0] * TILE_SIZE + ox,
                                pos[1] * TILE_SIZE + oy,
                                TILE_SIZE, TILE_SIZE)
-            if shop.bartender_hired:
-                if bar.has_ready:
-                    col = COLORS.get("bar_ready", (160, 100, 220))
-                elif bar.num_preparing > 0:
-                    col = COLORS.get("bar", (100, 60, 140))
-                else:
-                    col = COLORS.get("bar", (100, 60, 140))
+            slot = tile_slots[i] if i < len(tile_slots) else None
+
+            if slot and slot[0] == "ready":
+                col = COLORS.get("bar_ready", (160, 100, 220))
+            elif slot and slot[0] == "preparing":
+                col = COLORS.get("bar", (100, 60, 140))
             else:
-                col = (60, 40, 80)
+                col = COLORS.get("bar", (100, 60, 140))
             pygame.draw.rect(surface, col, rect)
             pygame.draw.rect(surface, COLORS["grid_line"], rect, 1)
 
-        if shop.bar_counter_positions and shop.bartender_hired:
-            first = min(shop.bar_counter_positions)
-            rx = first[0] * TILE_SIZE + ox
-            ry = first[1] * TILE_SIZE + oy
+            if slot is None:
+                continue
 
-            if bar.num_preparing > 0:
-                ct = self.font_sm.render(
-                    f"제조:{bar.num_preparing}", True, COLORS["text"])
-                surface.blit(ct, (rx + 2, ry + 2))
-            if bar.has_ready:
-                rt = self.font_sm.render(
-                    f"완성:{len(bar.ready)}", True, (220, 160, 255))
-                surface.blit(rt, (rx + 2, ry + TILE_SIZE - 16))
+            state, data = slot
+
+            if state == "preparing":
+                # Drink name
+                name = data["drink_item"]["name"]
+                nm = self.font_sm.render(name[:4], True, (255, 255, 255))
+                surface.blit(nm, nm.get_rect(
+                    centerx=rect.centerx, top=rect.y + 4))
+
+                # Table ID
+                tid = self.font_sm.render(
+                    f"T{data['table_id']}", True, (180, 180, 180))
+                surface.blit(tid, (rect.right - 22, rect.y + 4))
+
+                # Progress bar
+                total = data["drink_item"]["prep_time"]
+                ratio = max(0.0, 1.0 - data["timer"] / total) if total else 1.0
+                bw = TILE_SIZE - 8
+                bx = rect.x + 4
+                by = rect.bottom - 12
+                pygame.draw.rect(surface, (60, 60, 60), (bx, by, bw, 8))
+                pygame.draw.rect(surface, (160, 100, 220),
+                                 (bx, by, int(bw * ratio), 8))
+
+                pct = self.font_sm.render(
+                    f"{int(ratio * 100)}%", True, (200, 200, 200))
+                surface.blit(pct, pct.get_rect(
+                    centerx=rect.centerx, bottom=rect.bottom - 14))
+
+            elif state == "ready":
+                done = self.font_sm.render("완성", True, (255, 200, 80))
+                surface.blit(done, (rect.x + 2, rect.y + 2))
+
+                name = data["drink_item"]["name"]
+                nm = self.font_sm.render(name[:4], True, (220, 160, 255))
+                surface.blit(nm, nm.get_rect(center=rect.center))
+
+                tid = self.font_sm.render(
+                    f"T{data['table_id']}", True, (180, 180, 180))
+                surface.blit(tid, tid.get_rect(
+                    centerx=rect.centerx, bottom=rect.bottom - 4))
 
     # ═══════════════════════════════════════════════
     #  Employees
@@ -461,6 +618,43 @@ class Renderer:
             pygame.draw.circle(surface, (0, 0, 0), (int(ecx), int(ecy)), radius, 1)
             lbl = self.font_sm.render(f"직{emp.emp_id}", True, (255, 255, 255))
             surface.blit(lbl, lbl.get_rect(center=(int(ecx), int(ecy))))
+
+            # Carry label (food name above employee)
+            if emp.carrying:
+                name = self._carry_name(emp.carrying)
+                if name:
+                    nm = self.font_sm.render(
+                        name, True, (255, 255, 200))
+                    surface.blit(nm, nm.get_rect(
+                        centerx=int(ecx), bottom=int(ecy) - radius - 2))
+
+    # ── helper: extract Korean food name from a carry dict ──
+    @staticmethod
+    def _carry_name(item: dict) -> str:
+        t = item.get("type", "")
+        if t == "order":
+            return item.get("item", {}).get("name", "주문")[:3]
+        if t == "food":
+            return item.get("menu_item", {}).get("name", "음식")[:3]
+        if t == "drink":
+            return item.get("drink_item", {}).get("name", "음료")[:3]
+        return ""
+
+    # ── carried food name labels on player ──
+    def _draw_carry_labels(self, surface, shop, ox, oy):
+        player = shop.player
+        if not player.carrying:
+            return
+        px = player.x + ox
+        py = player.y + oy
+        for i, item in enumerate(player.carrying[:3]):
+            name = self._carry_name(item)
+            if not name:
+                continue
+            lbl = self.font_sm.render(name, True, (255, 255, 200))
+            surface.blit(lbl, lbl.get_rect(
+                centerx=int(px + TILE_SIZE // 2),
+                bottom=int(py) - 10 - i * 14))
 
     # ═══════════════════════════════════════════════
     #  Trait selection popup
@@ -520,19 +714,26 @@ class Renderer:
             title = self.font_lg.render("목표 달성!", True, (255, 215, 0))
         else:
             title = self.font_lg.render("시간 종료!", True, (255, 100, 100))
-        surface.blit(title, title.get_rect(center=(cx, cy - 30)))
+        surface.blit(title, title.get_rect(center=(cx, cy - 40)))
+
+        rating_mult = 1.0 + shop.shop_rating_stars / 10.0
+        score_txt = self.font_md.render(
+            f"최종 스코어: {shop.final_score:,.1f}"
+            f"  (순이익 ${shop.net_profit:,} × 평점계수 {rating_mult:.2f})",
+            True, (255, 255, 150))
+        surface.blit(score_txt, score_txt.get_rect(center=(cx, cy - 10)))
 
         sub = self.font_md.render(
             f"보유금: ${shop.money}  순이익: ${shop.net_profit}"
-            f"  평점: {int(shop.shop_rating * 100)}%"
+            f"  평점: {shop.shop_rating_stars:.1f}/5.0★"
             f"   {extra_text}", True, (200, 200, 200))
-        surface.blit(sub, sub.get_rect(center=(cx, cy + 10)))
+        surface.blit(sub, sub.get_rect(center=(cx, cy + 15)))
 
         stat = self.font_sm.render(
             f"서빙: {shop.customers_served}  이탈: {shop.customers_lost}",
             True, (160, 160, 160))
-        surface.blit(stat, stat.get_rect(center=(cx, cy + 35)))
+        surface.blit(stat, stat.get_rect(center=(cx, cy + 40)))
 
         hint = self.font_sm.render("R: 재시작  |  ESC: 종료",
                                    True, (160, 160, 160))
-        surface.blit(hint, hint.get_rect(center=(cx, cy + 55)))
+        surface.blit(hint, hint.get_rect(center=(cx, cy + 60)))

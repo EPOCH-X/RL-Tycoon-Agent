@@ -1,14 +1,17 @@
 {
-  "_comment": "강화학습 하이퍼파라미터 설정. 팀원별로 자유롭게 수정하세요.",
-
-  "algorithm": "MaskablePPO",
+  "_comment": "MARL (Multi-Agent RL) + Self-play 설정. 경쟁형 경영 게임에서 자기 대결 학습.",
+  "algorithm": "MARL",
   "policy": "MlpPolicy",
 
   "training": {
-    "total_timesteps": 1000000,
-    "n_envs": 12,
+    "total_timesteps": 300000,
+    "n_envs": 2,
     "seed": 42,
-    "eval_freq": 5000
+    "eval_freq": 5000,
+    "self_play_update_freq": 10000,
+    "opponent_pool_size": 5,
+    "elo_initial": 1000,
+    "elo_k": 32
   },
 
   "hyperparameters": {
@@ -25,12 +28,12 @@
   },
 
   "network": {
-    "net_arch": [256, 256],
+    "net_arch": [128, 128],
     "activation_fn": "tanh"
   },
 
   "reward_shaping": {
-    "_comment": "보상 가중치. reward = weight × event_value. 팀원별로 자유롭게 조정하세요.",
+    "_comment": "MARL에서는 상대적 성과도 보상에 반영됩니다.",
     "take_order": 8.0,
     "submit_kitchen": 5.0,
     "pickup_food": 5.0,
@@ -43,7 +46,6 @@
     "trash": -1.0,
     "trash_orphan": 0.5,
     "orphan_cleared": 0.0,
-    "stale_carry_cleared": 0.0,
     "blocked_move": -0.1,
     "idle_penalty": -0.3,
     "time_penalty": -0.02,
@@ -54,6 +56,8 @@
     "waiting_customer_seated": 3.0,
     "waiting_customer_left": -8.0,
     "win": 200.0,
+    "relative_money_bonus": 0.5,
+    "relative_rating_bonus": 1.0,
     "game_end": 0.01,
     "net_profit_delta": 0.2,
     "rating_delta": 10.0,
@@ -61,7 +65,6 @@
   },
 
   "game_overrides": {
-    "_comment": "게임 환경 파라미터 오버라이드 (null이면 기본값 사용)",
     "target_money": null,
     "day_limit": null
   }
