@@ -424,7 +424,7 @@ class DreamerTrainer(BaseTrainer):
             "kl": kl.item(),
             "actor_loss": actor_loss.item(),
             "critic_loss": critic_loss.item(),
-            "entropy": (total_entropy / imagine_horizon).item(),
+            "entropy": im_entropies.mean().item(),
         }
 
     def _evaluate(self, env, n_episodes: int = 5) -> float:
