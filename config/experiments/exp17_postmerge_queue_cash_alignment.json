@@ -1,0 +1,68 @@
+{
+  "_comment": "exp17_postmerge_queue_cash_alignment: post-merge 환경의 대기열/평점/점수 축을 일부 되살리고 종료 현금 확보와 운영 품질을 함께 정렬한다.",
+
+  "algorithm": "MaskablePPO",
+  "policy": "MlpPolicy",
+
+  "training": {
+    "total_timesteps": 3000000,
+    "n_envs": 12,
+    "seed": 42,
+    "eval_freq": 5000
+  },
+
+  "hyperparameters": {
+    "learning_rate": 3e-4,
+    "n_steps": 2048,
+    "batch_size": 64,
+    "n_epochs": 10,
+    "gamma": 0.99,
+    "gae_lambda": 0.95,
+    "clip_range": 0.2,
+    "ent_coef": 0.005,
+    "vf_coef": 0.5,
+    "max_grad_norm": 0.5
+  },
+
+  "network": {
+    "net_arch": [128, 128],
+    "activation_fn": "tanh"
+  },
+
+  "reward_shaping": {
+    "_comment": "exp16보다 업그레이드 유인을 더 줄이고, 대기열/평점/최종점수 축을 약하게 복원한다.",
+    "take_order": 4.0,
+    "serve_food": 20.0,
+    "submit_kitchen": 6.0,
+    "pickup_food": 6.0,
+    "pickup_drink": 2.0,
+    "serve_drink": 5.0,
+    "customer_payment": 0.025,
+    "lost_customer": -80.0,
+    "wrong_table": -6.0,
+    "buy_upgrade": 0.0,
+    "no_upgrade": 0.0,
+    "win": 240.0,
+    "trash": -1.0,
+    "trash_orphan": 0.0,
+    "orphan_cleared": 0.0,
+    "stale_carry_cleared": 0.0,
+    "customer_waiting": -0.1,
+    "waiting_customer_seated": 2.0,
+    "waiting_customer_left": -12.0,
+    "blocked_move": 0.0,
+    "idle_penalty": 0.0,
+    "time_penalty": 0.0,
+    "food_unlock": 0.0,
+    "game_end": 0.002,
+    "net_profit_delta": 0.0,
+    "rating_delta": 2.0,
+    "final_score_delta": 0.02
+  },
+
+  "game_overrides": {
+    "_comment": "8일보다 조금 긴 운영 구간을 주어 queue/rating 축과 종료 현금 확보를 함께 학습한다.",
+    "target_money": 250,
+    "day_limit": 10
+  }
+}

@@ -28,6 +28,8 @@ from config.settings import (
     MAX_WAITING_QUEUE, WAITING_PATIENCE,
     ACTION_UP, ACTION_DOWN, ACTION_LEFT, ACTION_RIGHT,
     ACTION_INTERACT, ACTION_NONE, ACTION_BUY_UPGRADE,
+    ACTION_BUY_TABLE, ACTION_HIRE_WAITER, ACTION_HIRE_BARTENDER,
+    ACTION_KITCHEN_EXPAND, ACTION_HIRE_CHEF,
     load_json_config,
 )
 from core.player import Player
@@ -39,10 +41,19 @@ from core.employee import Employee
 class Shop:
     """One self-contained restaurant: map + player + tables + kitchen + money."""
 
+    _UPGRADE_ACTION_MAP = {
+        ACTION_BUY_TABLE: "buy_table",
+        ACTION_HIRE_WAITER: "hire_waiter",
+        ACTION_HIRE_BARTENDER: "hire_bartender",
+        ACTION_KITCHEN_EXPAND: "kitchen_expand",
+        ACTION_HIRE_CHEF: "hire_chef",
+    }
+
     def __init__(self, *, map_data=None, menu_data=None,
                  customers_data=None, upgrades_data=None,
                  target_money=None, day_limit=None,
-                 interact_mask_mode: str = "strict"):
+                 interact_mask_mode: str = "strict",
+                 disable_auto_buy_action: bool = False):
         # ── load config ──────────────────────────
         if map_data is None:
             map_data = load_json_config("map_default.json")
@@ -138,6 +149,7 @@ class Shop:
         self.done: bool = False
         self.won: bool = False
         self.interact_mask_mode: str = interact_mask_mode
+        self.disable_auto_buy_action: bool = disable_auto_buy_action
 
         # ── economy tracking ─────────────────────
         self.total_earned: int = 0
@@ -567,6 +579,9 @@ class Shop:
             events.extend(self._interact())
         elif action == ACTION_BUY_UPGRADE:
             events.extend(self._auto_buy_upgrade())
+        elif action in self._UPGRADE_ACTION_MAP:
+            events.extend(self._buy_specific_upgrade(
+                self._UPGRADE_ACTION_MAP[action]))
 
         # 2) Kitchen tick
         self.kitchen.update(dt, self.cook_speed_mult)
@@ -693,14 +708,50 @@ class Shop:
 
     def get_action_mask(self) -> np.ndarray:
         """Return a boolean mask for currently valid RL actions."""
-        mask = np.ones(7, dtype=bool)
+        mask = np.ones(12, dtype=bool)
         mask[ACTION_INTERACT] = self.can_interact_now()
-        mask[ACTION_BUY_UPGRADE] = self.can_buy_any_upgrade_now()
+        mask[ACTION_BUY_UPGRADE] = (
+            False if self.disable_auto_buy_action else self.can_buy_any_upgrade_now()
+        )
+        for action, upgrade_id in self._UPGRADE_ACTION_MAP.items():
+            mask[action] = self.can_buy_upgrade(upgrade_id)
         return mask
 
     def can_buy_any_upgrade_now(self) -> bool:
         """Whether the auto-buy RL action can succeed right now."""
         return self._get_best_auto_buy_choice() is not None
+
+    def _get_upgrade_data(self, upgrade_id: str) -> dict | None:
+        return next((u for u in self.upgrades_data if u["id"] == upgrade_id), None)
+
+    def _get_upgrade_cost(self, upg: dict, level: int) -> int:
+        if "cost_list" in upg and level < len(upg["cost_list"]):
+            return int(upg["cost_list"][level])
+        return int(upg["base_cost"] * (upg["cost_multiplier"] ** level))
+
+    def get_upgrade_next_cost(self, upgrade_id: str) -> int | None:
+        upg = self._get_upgrade_data(upgrade_id)
+        if upg is None:
+            return None
+        level = self.upgrade_levels.get(upgrade_id, 0)
+        if level >= upg["max_level"]:
+            return None
+        return self._get_upgrade_cost(upg, level)
+
+    def can_buy_upgrade(self, upgrade_id: str) -> bool:
+        upg = self._get_upgrade_data(upgrade_id)
+        if upg is None:
+            return False
+        level = self.upgrade_levels.get(upgrade_id, 0)
+        if level >= upg["max_level"]:
+            return False
+        if upg["effect_type"] == "hire_chef" and self.num_chefs >= self.max_chefs:
+            return False
+        required = upg.get("unlock_profit", 0)
+        if self.net_profit < required:
+            return False
+        cost = self._get_upgrade_cost(upg, level)
+        return self.money >= cost
 
     def can_interact_now(self) -> bool:
         """Whether an interact action can produce a meaningful state change."""
@@ -1392,9 +1443,7 @@ class Shop:
             uid = upg["id"]
             level = self.upgrade_levels[uid]
             maxed = level >= upg["max_level"]
-            cost = (0 if maxed
-                    else (upg["cost_list"][level] if "cost_list" in upg and level < len(upg["cost_list"])
-                          else int(upg["base_cost"] * (upg["cost_multiplier"] ** level))))
+            cost = 0 if maxed else self._get_upgrade_cost(upg, level)
             locked = self.net_profit < upg.get("unlock_profit", 0)
             info.append({
                 "data": upg,
@@ -1452,8 +1501,7 @@ class Shop:
             self._msg(f"순이익 ${required} 필요!")
             return False
 
-        cost = (upg["cost_list"][level] if "cost_list" in upg and level < len(upg["cost_list"])
-               else int(upg["base_cost"] * (upg["cost_multiplier"] ** level)))
+        cost = self._get_upgrade_cost(upg, level)
         if self.money < cost:
             self._msg(f"${cost} 필요!")
             return False
@@ -1602,7 +1650,7 @@ class Shop:
             req = upg.get("unlock_profit", 0)
             if self.net_profit < req:
                 continue
-            cost = int(upg["base_cost"] * (upg["cost_multiplier"] ** level))
+            cost = self._get_upgrade_cost(upg, level)
             if cost > self.money:
                 continue
             choice = {
@@ -1645,6 +1693,12 @@ class Shop:
                 self._unlock_food(choice["item"])
             else:
                 self.buy_upgrade(choice["id"])
+            return [("buy_upgrade", 1.0)]
+        return [("no_upgrade", 1.0)]
+
+    def _buy_specific_upgrade(self, upgrade_id: str) -> list[tuple[str, float]]:
+        """RL action: buy a specific upgrade so policy can learn upgrade choice."""
+        if self.buy_upgrade(upgrade_id):
             return [("buy_upgrade", 1.0)]
         return [("no_upgrade", 1.0)]
 

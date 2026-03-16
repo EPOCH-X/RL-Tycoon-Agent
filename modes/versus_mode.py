@@ -13,6 +13,7 @@ from config.settings import (
     INTERACT_RANGE,
 )
 from modes.base_mode import BaseMode
+from modes.model_runtime import load_model_runtime_options
 from core.shop import Shop
 from core.customer import CustomerState
 from rendering.asset_manager import AssetManager
@@ -27,10 +28,21 @@ class VersusMode(BaseMode):
                  target_money=None, day_limit=None,
                  time_scale: float = 1.0,
                  use_rule_controller: bool = False):
-        self.human_shop = Shop(target_money=target_money,
-                               day_limit=day_limit)
-        self.ai_shop = Shop(target_money=target_money,
-                            day_limit=day_limit)
+        game_overrides, env_options = load_model_runtime_options(model_path)
+        if target_money is None:
+            target_money = game_overrides.get("target_money")
+        if day_limit is None:
+            day_limit = game_overrides.get("day_limit")
+        self.human_shop = Shop(
+            target_money=target_money,
+            day_limit=day_limit,
+            **env_options,
+        )
+        self.ai_shop = Shop(
+            target_money=target_money,
+            day_limit=day_limit,
+            **env_options,
+        )
         self.use_rule_controller = use_rule_controller
 
         self.map_w = self.human_shop.grid_width * TILE_SIZE

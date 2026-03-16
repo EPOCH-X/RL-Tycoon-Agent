@@ -1,0 +1,73 @@
+{
+  "_comment": "exp19_upgrade_choice_strict: exp18 구조를 유지하되 학습에서 기존 auto-buy 액션을 비활성화해 개별 업그레이드 선택을 강제한다.",
+
+  "algorithm": "MaskablePPO",
+  "policy": "MlpPolicy",
+
+  "training": {
+    "total_timesteps": 3500000,
+    "n_envs": 12,
+    "seed": 42,
+    "eval_freq": 5000
+  },
+
+  "hyperparameters": {
+    "learning_rate": 3e-4,
+    "n_steps": 2048,
+    "batch_size": 64,
+    "n_epochs": 10,
+    "gamma": 0.99,
+    "gae_lambda": 0.95,
+    "clip_range": 0.2,
+    "ent_coef": 0.007,
+    "vf_coef": 0.5,
+    "max_grad_norm": 0.5
+  },
+
+  "network": {
+    "net_arch": [128, 128],
+    "activation_fn": "tanh"
+  },
+
+  "reward_shaping": {
+    "_comment": "exp18과 같은 목적 함수를 유지하고, 업그레이드 가치는 후행 운영 성과로만 드러나게 둔다.",
+    "take_order": 4.0,
+    "serve_food": 20.0,
+    "submit_kitchen": 6.0,
+    "pickup_food": 6.0,
+    "pickup_drink": 2.0,
+    "serve_drink": 5.0,
+    "customer_payment": 0.025,
+    "lost_customer": -80.0,
+    "wrong_table": -6.0,
+    "buy_upgrade": 0.0,
+    "no_upgrade": 0.0,
+    "win": 240.0,
+    "trash": -1.0,
+    "trash_orphan": 0.0,
+    "orphan_cleared": 0.0,
+    "stale_carry_cleared": 0.0,
+    "customer_waiting": -0.1,
+    "waiting_customer_seated": 2.0,
+    "waiting_customer_left": -12.0,
+    "blocked_move": 0.0,
+    "idle_penalty": 0.0,
+    "time_penalty": 0.0,
+    "food_unlock": 0.0,
+    "game_end": 0.002,
+    "net_profit_delta": 0.0,
+    "rating_delta": 2.0,
+    "final_score_delta": 0.02
+  },
+
+  "game_overrides": {
+    "_comment": "exp17/18과 같은 운영 목표로 업그레이드 선택 정책만 비교한다.",
+    "target_money": 250,
+    "day_limit": 10
+  },
+
+  "env_options": {
+    "_comment": "factorized upgrade actions만 남기고 기존 auto-buy shortcut은 학습에서 차단한다.",
+    "disable_auto_buy_action": true
+  }
+}

@@ -70,7 +70,7 @@ def _obs_size(shop: Shop) -> int:
         + 6
         + shop.max_tables * 6
         + 8
-        + 12
+        + 25
     )
 
 
@@ -161,15 +161,14 @@ def build_observation(shop: Shop) -> np.ndarray:
     obs[idx + 2] = 1.0 - min(1.0, shop.time_elapsed / max(1, shop.total_time_limit))
     obs[idx + 3] = shop.shop_rating
 
-    can_buy = 0.0
-    for upg in shop.upgrades_data:
-        uid = upg["id"]
-        level = shop.upgrade_levels[uid]
-        if level < upg["max_level"]:
-            cost = int(upg["base_cost"] * (upg["cost_multiplier"] ** level))
-            if shop.money >= cost:
-                can_buy = 1.0
-                break
+    tracked_upgrades = [
+        "buy_table",
+        "hire_waiter",
+        "hire_bartender",
+        "kitchen_expand",
+        "hire_chef",
+    ]
+    can_buy = 1.0 if any(shop.can_buy_upgrade(uid) for uid in tracked_upgrades) else 0.0
     obs[idx + 4] = can_buy
     obs[idx + 5] = min(1.0, shop.net_profit / max(1, shop.target_money))
     obs[idx + 6] = len(shop.employees) / 4.0
@@ -186,6 +185,22 @@ def build_observation(shop: Shop) -> np.ndarray:
     best_buy = shop._get_best_auto_buy_choice()
     if best_buy is not None:
         obs[idx + 11] = np.clip(best_buy["score"] / 150.0, 0.0, 1.0)
+    queue_len = len(shop.waiting_queue)
+    obs[idx + 12] = queue_len / max(1, shop.max_waiting_queue)
+    obs[idx + 13] = 1.0 if queue_len >= shop.max_waiting_queue else 0.0
+    if queue_len > 0:
+        oldest_wait = shop.waiting_queue[0]
+        obs[idx + 14] = oldest_wait.patience_ratio
+    else:
+        obs[idx + 14] = 0.0
+    for offset, upgrade_id in enumerate(tracked_upgrades):
+        obs[idx + 15 + offset] = 1.0 if shop.can_buy_upgrade(upgrade_id) else 0.0
+    for offset, upgrade_id in enumerate(tracked_upgrades):
+        cost = shop.get_upgrade_next_cost(upgrade_id)
+        if cost is None:
+            obs[idx + 20 + offset] = 0.0
+        else:
+            obs[idx + 20 + offset] = min(1.0, cost / max(1, shop.target_money))
 
     return obs
 

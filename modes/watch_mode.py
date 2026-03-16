@@ -7,16 +7,16 @@ The agent controls the shop autonomously while you watch.
   ↑/↓   – adjust speed (×0.5 ~ ×10)
 """
 
-import json
-import os
 import pygame
 import numpy as np
 
 from config.settings import (
     TILE_SIZE, UI_HEIGHT, COLORS,
     ACTION_NONE,
+    NUM_ACTIONS,
 )
 from modes.base_mode import BaseMode
+from modes.model_runtime import load_model_runtime_options
 from core.shop import Shop
 from core.ranking import RankingManager
 from rendering.asset_manager import AssetManager
@@ -24,7 +24,10 @@ from rendering.renderer import Renderer
 from ai.agent import load_agent
 from ai.gym_env import build_observation
 
-ACTION_NAMES = ["↑위", "↓아래", "←좌", "→우", "★상호작용", "·대기", "₩업그레이드"]
+ACTION_NAMES = [
+    "↑위", "↓아래", "←좌", "→우", "★상호작용", "·대기",
+    "₩자동구매", "₩테이블", "₩종업원", "₩바텐더", "₩주방", "₩요리사",
+]
 
 
 class WatchMode(BaseMode):
@@ -32,18 +35,17 @@ class WatchMode(BaseMode):
     def __init__(self, *, model_path=None, algo_name=None,
                  target_money=None, day_limit=None,
                  speed_multiplier: float = 1.0):
-        # Auto-detect day_limit from saved model config if not specified
-        if day_limit is None and model_path:
-            cfg_path = os.path.join(os.path.dirname(model_path),
-                                    "train_config_used.json")
-            if os.path.isfile(cfg_path):
-                with open(cfg_path, encoding="utf-8") as f:
-                    tcfg = json.load(f)
-                ov = tcfg.get("game_overrides", {})
-                if ov.get("day_limit") is not None:
-                    day_limit = ov["day_limit"]
+        game_overrides, env_options = load_model_runtime_options(model_path)
+        if target_money is None:
+            target_money = game_overrides.get("target_money")
+        if day_limit is None:
+            day_limit = game_overrides.get("day_limit")
 
-        self.shop = Shop(target_money=target_money, day_limit=day_limit)
+        self.shop = Shop(
+            target_money=target_money,
+            day_limit=day_limit,
+            **env_options,
+        )
         w = self.shop.grid_width * TILE_SIZE
         h = self.shop.grid_height * TILE_SIZE + UI_HEIGHT
         super().__init__(w, h, title="RL 타이쿤 – 관전 모드")
@@ -63,7 +65,7 @@ class WatchMode(BaseMode):
         self._last_action: int = ACTION_NONE
         self._last_probs: np.ndarray | None = None
         self._step_count: int = 0
-        self._action_counts = [0] * 7
+        self._action_counts = [0] * NUM_ACTIONS
 
     # ── events ───────────────────────────────────
     def handle_events(self):
@@ -79,7 +81,7 @@ class WatchMode(BaseMode):
                     self.shop.reset()
                     self._result_recorded = False
                     self._step_count = 0
-                    self._action_counts = [0] * 7
+                    self._action_counts = [0] * NUM_ACTIONS
                 # Toggle deterministic
                 if event.key == pygame.K_d:
                     if hasattr(self.agent, 'deterministic'):
@@ -104,10 +106,11 @@ class WatchMode(BaseMode):
             if self.shop.done:
                 break
             obs = build_observation(self.shop)
-            action = self.agent.predict(obs)
+            mask = self.shop.get_action_mask()
+            action = self.agent.predict(obs, action_mask=mask)
             self._last_action = action
             self._step_count += 1
-            if 0 <= action < 7:
+            if 0 <= action < NUM_ACTIONS:
                 self._action_counts[action] += 1
 
             # Get action probabilities for debug display
@@ -145,7 +148,7 @@ class WatchMode(BaseMode):
         panel_x = self.screen.get_width() - 180
         panel_y = 20
         # Current action
-        a_name = ACTION_NAMES[self._last_action] if 0 <= self._last_action < 7 else "?"
+        a_name = ACTION_NAMES[self._last_action] if 0 <= self._last_action < NUM_ACTIONS else "?"
         act_lbl = font.render(f"행동: {a_name}", True, (255, 255, 200))
         self.screen.blit(act_lbl, (panel_x, panel_y))
         panel_y += 18

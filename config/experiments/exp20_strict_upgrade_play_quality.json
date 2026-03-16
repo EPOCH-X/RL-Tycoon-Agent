@@ -1,0 +1,73 @@
+{
+  "_comment": "exp20_strict_upgrade_play_quality: exp19의 strict upgrade 구조를 유지하면서 즉각적인 서비스 품질과 운영 응답성을 회복하고, win 정렬은 보조적으로 강화한다.",
+
+  "algorithm": "MaskablePPO",
+  "policy": "MlpPolicy",
+
+  "training": {
+    "total_timesteps": 3500000,
+    "n_envs": 12,
+    "seed": 42,
+    "eval_freq": 5000
+  },
+
+  "hyperparameters": {
+    "learning_rate": 3e-4,
+    "n_steps": 2048,
+    "batch_size": 64,
+    "n_epochs": 10,
+    "gamma": 0.99,
+    "gae_lambda": 0.95,
+    "clip_range": 0.2,
+    "ent_coef": 0.006,
+    "vf_coef": 0.5,
+    "max_grad_norm": 0.5
+  },
+
+  "network": {
+    "net_arch": [128, 128],
+    "activation_fn": "tanh"
+  },
+
+  "reward_shaping": {
+    "_comment": "서비스 루프 반응성을 높이고 멍한 대기/헛이동을 줄이며, strict upgrade 선택은 유지한다.",
+    "take_order": 5.0,
+    "serve_food": 22.0,
+    "submit_kitchen": 7.0,
+    "pickup_food": 7.0,
+    "pickup_drink": 3.0,
+    "serve_drink": 6.0,
+    "customer_payment": 0.025,
+    "lost_customer": -85.0,
+    "wrong_table": -8.0,
+    "buy_upgrade": 0.0,
+    "no_upgrade": 0.0,
+    "win": 260.0,
+    "trash": -1.0,
+    "trash_orphan": 0.0,
+    "orphan_cleared": 0.5,
+    "stale_carry_cleared": 1.5,
+    "customer_waiting": -0.15,
+    "waiting_customer_seated": 2.5,
+    "waiting_customer_left": -14.0,
+    "blocked_move": -0.05,
+    "idle_penalty": -0.05,
+    "time_penalty": -0.005,
+    "food_unlock": 0.0,
+    "game_end": 0.002,
+    "net_profit_delta": 0.0,
+    "rating_delta": 2.0,
+    "final_score_delta": 0.02
+  },
+
+  "game_overrides": {
+    "_comment": "exp19와 같은 운영 목표를 유지해 행동 품질 개선 여부를 직접 비교한다.",
+    "target_money": 250,
+    "day_limit": 10
+  },
+
+  "env_options": {
+    "_comment": "개별 업그레이드 선택만 학습하도록 기존 auto-buy shortcut은 차단한다.",
+    "disable_auto_buy_action": true
+  }
+}
