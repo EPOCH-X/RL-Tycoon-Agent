@@ -20,6 +20,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.optim import Adam
 
+from torch.utils.tensorboard import SummaryWriter
+
 from algorithms.base import BaseTrainer
 from algorithms.common import load_algo_config, make_env, save_run_config, EarlyStopTracker
 
@@ -155,13 +157,14 @@ class SACTrainer(BaseTrainer):
         # Auto temperature
         target_ent = hp.get("target_entropy", "auto")
         if target_ent == "auto":
-            self._target_entropy = -np.log(1.0 / self._act_dim) * 0.98
+            self._target_entropy = -np.log(1.0 / self._act_dim) * 0.45
         else:
             self._target_entropy = float(target_ent)
 
         self._log_alpha = torch.zeros(1, requires_grad=True, device=self.device)
         self._alpha_opt = Adam([self._log_alpha], lr=lr)
 
+        self._max_grad_norm = hp.get("max_grad_norm", 1.0)
         self._hp = hp
         self._game_ov = game_ov
         self._reward_cfg = reward_cfg
@@ -178,47 +181,79 @@ class SACTrainer(BaseTrainer):
         train_freq = hp.get("train_freq", 1)
         gradient_steps = hp.get("gradient_steps", 1)
         eval_freq = self.cfg.get("training", {}).get("eval_freq", 5000)
+        n_envs = self.cfg.get("training", {}).get("n_envs", 1)
 
         replay = ReplayBuffer(buffer_size)
-        env = make_env(0, self._seed, self._game_ov, self._reward_cfg)()
+        # 다중 환경: 데이터 다양성 확보 & update-to-data ratio 개선
+        envs = [make_env(i, self._seed + i, self._game_ov, self._reward_cfg)()
+                for i in range(n_envs)]
         eval_env = make_env(0, self._seed + 1000, self._game_ov, self._reward_cfg)()
         early_stop = EarlyStopTracker(patience=50, min_delta=1.0, verbose=1)
 
-        obs, _ = env.reset()
+        obs_all = []
+        ep_reward_all = [0.0] * n_envs
+        for env in envs:
+            o, _ = env.reset()
+            obs_all.append(o)
         episode_rewards = []
-        ep_reward = 0.0
         best_eval = float("-inf")
 
+        # TensorBoard + 평가 기록
+        writer = SummaryWriter(os.path.join(self.save_path, "tb_logs"))
+        eval_timesteps, eval_results = [], []
+        loss_acc = {"q_loss": [], "policy_loss": [], "alpha_loss": [], "alpha": [], "entropy": []}
+
         for step in range(1, self._timesteps + 1):
+            env_idx = (step - 1) % n_envs
+            env = envs[env_idx]
+
             if step < learning_starts:
                 action = env.action_space.sample()
             else:
-                obs_t = torch.FloatTensor(obs).unsqueeze(0).to(self.device)
-                action = self.policy.get_action(obs_t).item()
+                with torch.no_grad():
+                    obs_t = torch.FloatTensor(obs_all[env_idx]).unsqueeze(0).to(self.device)
+                    action = self.policy.get_action(obs_t).item()
 
             next_obs, reward, terminated, truncated, info = env.step(action)
             done = terminated or truncated
-            replay.push(obs, action, reward, next_obs, float(done))
-            obs = next_obs
-            ep_reward += reward
+            replay.push(obs_all[env_idx], action, reward, next_obs, float(done))
+            obs_all[env_idx] = next_obs
+            ep_reward_all[env_idx] += reward
 
             if done:
-                episode_rewards.append(ep_reward)
+                episode_rewards.append(ep_reward_all[env_idx])
                 if len(episode_rewards) % 10 == 0:
                     print(f"  [SAC (소프트 액터-크리틱)] 스텝(Step) {step}, 에피소드(Episodes) {len(episode_rewards)}, "
                           f"평균보상(AvgReward, 최근10): {np.mean(episode_rewards[-10:]):.1f}")
-                obs, _ = env.reset()
-                ep_reward = 0.0
+                writer.add_scalar("rollout/ep_reward", ep_reward_all[env_idx], step)
+                summary = info.get("episode_summary")
+                if summary:
+                    writer.add_scalar("rollout/served", summary.get("customers_served", 0), step)
+                    writer.add_scalar("rollout/lost", summary.get("customers_lost", 0), step)
+                    writer.add_scalar("rollout/profit", summary.get("net_profit", 0), step)
+                    writer.add_scalar("rollout/rating", summary.get("shop_rating", 0), step)
+                obs_all[env_idx], _ = env.reset()
+                ep_reward_all[env_idx] = 0.0
 
             # Train
             if step >= learning_starts and step % train_freq == 0:
                 for _ in range(gradient_steps):
-                    self._update(replay, batch_size, gamma, tau)
+                    if len(replay) >= batch_size:
+                        metrics = self._update(replay, batch_size, gamma, tau)
+                        for k, v in metrics.items():
+                            loss_acc[k].append(v)
+                if step % 1000 == 0 and loss_acc["q_loss"]:
+                    for k, vals in loss_acc.items():
+                        writer.add_scalar(f"train/{k}", np.mean(vals), step)
+                    loss_acc = {k: [] for k in loss_acc}
 
             # Eval
             if step % eval_freq == 0:
                 eval_r = self._evaluate(eval_env, n_episodes=5)
                 print(f"  [SAC] 평가(Eval) 스텝 {step}: 평균보상(mean_reward)={eval_r:.1f}")
+                writer.add_scalar("eval/mean_reward", eval_r, step)
+                eval_timesteps.append(step)
+                eval_results.append(eval_r)
                 if eval_r > best_eval:
                     best_eval = eval_r
                     self.save(os.path.join(self.save_path, "best_model"))
@@ -227,7 +262,14 @@ class SACTrainer(BaseTrainer):
                     break
 
         self.save(os.path.join(self.save_path, "final_model"))
-        env.close()
+        eval_log_dir = os.path.join(self.save_path, "eval_logs")
+        os.makedirs(eval_log_dir, exist_ok=True)
+        np.savez(os.path.join(eval_log_dir, "evaluations.npz"),
+                 timesteps=np.array(eval_timesteps),
+                 results=np.array(eval_results))
+        writer.close()
+        for env in envs:
+            env.close()
         eval_env.close()
         print(f"[✓] SAC (소프트 액터-크리틱) 학습 완료. 모델 → '{self.save_path}/'")
         return {"algorithm": "SAC", "timesteps": self._timesteps,
@@ -261,6 +303,7 @@ class SACTrainer(BaseTrainer):
 
         self._q_opt.zero_grad()
         q_loss.backward()
+        nn.utils.clip_grad_norm_(self.q_net.parameters(), self._max_grad_norm)
         self._q_opt.step()
 
         # Policy loss
@@ -272,6 +315,7 @@ class SACTrainer(BaseTrainer):
 
         self._policy_opt.zero_grad()
         policy_loss.backward()
+        nn.utils.clip_grad_norm_(self.policy.parameters(), self._max_grad_norm)
         self._policy_opt.step()
 
         # Alpha loss
@@ -287,6 +331,14 @@ class SACTrainer(BaseTrainer):
         # Soft update target
         for tp, sp in zip(self.q_target.parameters(), self.q_net.parameters()):
             tp.data.copy_(tau * sp.data + (1.0 - tau) * tp.data)
+
+        return {
+            "q_loss": q_loss.item(),
+            "policy_loss": policy_loss.item(),
+            "alpha_loss": alpha_loss.item(),
+            "alpha": alpha.item(),
+            "entropy": -(probs * log_probs).sum(dim=-1).mean().item(),
+        }
 
     def _evaluate(self, env, n_episodes: int = 5) -> float:
         total = 0.0

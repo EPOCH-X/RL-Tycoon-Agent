@@ -26,6 +26,8 @@ import torch
 import torch.nn.functional as F
 import torch.multiprocessing as mp
 
+from torch.utils.tensorboard import SummaryWriter
+
 from algorithms.base import BaseTrainer
 from algorithms.common import load_algo_config, make_env, make_vec_env, save_run_config, get_device, EarlyStopTracker
 from algorithms.a3c.network import ActorCritic
@@ -238,6 +240,10 @@ class A3CTrainer(BaseTrainer):
 
         print(f"  [A3C-GPU (비동기 액터-크리틱)] {n_envs}개 병렬 환경으로 학습 시작, 디바이스: {self.device}")
 
+        # TensorBoard + 평가 기록
+        writer = SummaryWriter(os.path.join(self.save_path, "tb_logs"))
+        eval_timesteps, eval_results = [], []
+
         while total_steps < self._timesteps:
             # ── 1) Rollout 수집 (no_grad – 행동 선택만) ──
             mb_obs, mb_actions, mb_rewards, mb_dones = [], [], [], []
@@ -260,7 +266,15 @@ class A3CTrainer(BaseTrainer):
                 mb_dones.append(torch.FloatTensor(dones).to(self.device))
 
                 total_steps += n_envs
-                episode_count += sum(dones)
+                for i, d in enumerate(dones):
+                    if d:
+                        episode_count += 1
+                        summary = infos[i].get("episode_summary")
+                        if summary:
+                            writer.add_scalar("rollout/served", summary.get("customers_served", 0), total_steps)
+                            writer.add_scalar("rollout/lost", summary.get("customers_lost", 0), total_steps)
+                            writer.add_scalar("rollout/profit", summary.get("net_profit", 0), total_steps)
+                            writer.add_scalar("rollout/rating", summary.get("shop_rating", 0), total_steps)
 
             # ── 2) 그래디언트 계산을 위해 forward pass 재실행 ──
             all_obs = torch.stack(mb_obs)              # [n_steps, n_envs, obs_dim]
@@ -305,6 +319,12 @@ class A3CTrainer(BaseTrainer):
             torch.nn.utils.clip_grad_norm_(self.global_model.parameters(), max_grad_norm)
             optimizer.step()
 
+            # TensorBoard 손실 기록
+            writer.add_scalar("train/policy_loss", policy_loss.item(), total_steps)
+            writer.add_scalar("train/value_loss", value_loss.item(), total_steps)
+            writer.add_scalar("train/entropy", entropies.mean().item(), total_steps)
+            writer.add_scalar("train/total_loss", loss.item(), total_steps)
+
             # 로그
             if total_steps % (eval_freq // 2) < n_envs * n_steps:
                 print(f"  [A3C-GPU] 스텝(Steps): {total_steps}, 에피소드(Episodes): {episode_count}, "
@@ -315,6 +335,9 @@ class A3CTrainer(BaseTrainer):
                 eval_r = self._evaluate_gpu(eval_env)
                 print(f"  [A3C-GPU] 평가(Eval) 스텝 {total_steps}: "
                       f"평균보상(mean_reward)={eval_r:.1f}")
+                writer.add_scalar("eval/mean_reward", eval_r, total_steps)
+                eval_timesteps.append(total_steps)
+                eval_results.append(eval_r)
                 if eval_r > best_eval:
                     best_eval = eval_r
                     self.save(os.path.join(self.save_path, "best_model"))
@@ -325,6 +348,12 @@ class A3CTrainer(BaseTrainer):
         vec_env.close()
         eval_env.close()
         self.save(os.path.join(self.save_path, "final_model"))
+        eval_log_dir = os.path.join(self.save_path, "eval_logs")
+        os.makedirs(eval_log_dir, exist_ok=True)
+        np.savez(os.path.join(eval_log_dir, "evaluations.npz"),
+                 timesteps=np.array(eval_timesteps),
+                 results=np.array(eval_results))
+        writer.close()
         print(f"[✓] A3C-GPU (비동기 액터-크리틱) 학습 완료 ({episode_count}개 에피소드). "
               f"모델 → '{self.save_path}/'")
         return {"algorithm": "A3C", "mode": "GPU-A2C",
@@ -369,11 +398,15 @@ class A3CTrainer(BaseTrainer):
             workers.append(p)
 
         total_episodes = 0
+        writer = SummaryWriter(os.path.join(self.save_path, "tb_logs"))
+        ep_global = 0
         while any(p.is_alive() for p in workers):
             while not results_queue.empty():
                 msg = results_queue.get_nowait()
                 if msg[0] == "episode":
                     _, rank, ep_cnt, ep_rew = msg
+                    ep_global += 1
+                    writer.add_scalar("rollout/ep_reward", ep_rew, ep_global)
                     print(f"  [워커 {rank}] 에피소드(Episode) {ep_cnt}, "
                           f"보상(Reward): {ep_rew:.1f}")
                 elif msg[0] == "done":
@@ -383,6 +416,7 @@ class A3CTrainer(BaseTrainer):
         for p in workers:
             p.join()
 
+        writer.close()
         self.save(os.path.join(self.save_path, "final_model"))
         print(f"[✓] A3C-CPU (비동기 액터-크리틱) 학습 완료 ({total_episodes}개 에피소드). "
               f"모델 → '{self.save_path}/'")
