@@ -745,6 +745,174 @@ $$\Phi(s) = -\frac{\text{dist}(\text{player}, \text{target})}{\text{map\_diagona
 
 ---
 
+## 11. Dreamer vs DiscreteSAC 성능 분석
+
+> **실험 결과 요약**: Dreamer는 10M 스텝 학습에서 보상 -1700 ~ -5100 사이를 진동하며 수렴 실패.
+> DiscreteSAC는 안정적으로 학습 진행. 이 섹션에서는 **왜** 이런 차이가 나는지 분석한다.
+
+### 11.1 Dreamer 학습 로그 패턴
+
+```
+스텝 1~10k    : -1847 → -4932  (세계 모델이 부정확, 상상이 엉뚱한 결과 생성)
+스텝 10k~55k  : 점진적 개선 -4932 → -1708  (세계 모델이 조금씩 정확해짐)
+스텝 55k~150k : 다시 악화 -1708 → -5129 → -3302  (과적합 또는 붕괴)
+```
+
+**핵심 패턴**: "잠깐 개선 → 다시 붕괴"를 반복. 이는 **세계 모델의 불안정성이 Actor-Critic으로 전파**되는 전형적 증상이다.
+
+### 11.2 근본 원인 분석 (8가지)
+
+#### 원인 1: learning_starts 부재 — 가장 치명적
+
+```python
+# Dreamer trainer.py (현재)
+if step % wm_train_freq == 0 and len(replay) > batch_size * seq_len:
+    # batch_size=64, seq_len=32 → 2048 스텝이면 학습 시작
+```
+
+| 항목           | Dreamer                         | DiscreteSAC                    |
+| -------------- | ------------------------------- | ------------------------------ |
+| 학습 시작 시점 | **2,048 스텝** (≈ 0.2 에피소드) | **20,000 스텝** (≈ 2 에피소드) |
+
+**문제**: 겨우 0.2 에피소드 분량의 데이터로 세계 모델을 학습하면, 모델이 "이 세상은 이렇게 생겼다"고 완전히 틀린 결론을 내린다. 이 틀린 모델 안에서 상상하면 Actor가 엉뚱한 행동을 배운다.
+
+**비유**: 레스토랑에서 첫 손님 한 명만 보고 "모든 손님은 커피만 주문한다"고 결론짓는 것과 같다.
+
+#### 원인 2: 상상 궤적의 복합 오차 (Compounding Error)
+
+Dreamer는 세계 모델 안에서 **15스텝을 연속으로 상상**한다:
+
+$$\hat{s}_{t+1} = f(\hat{s}_t, a_t) \quad \text{(1스텝 오차: } \epsilon\text{)}$$
+$$\hat{s}_{t+k} \text{의 누적 오차} \approx k \cdot \epsilon + O(k^2)$$
+
+| 상상 깊이 | 오차 비유                             |
+| --------- | ------------------------------------- |
+| 1스텝     | "다음 1초를 예측" — 대체로 맞음       |
+| 5스텝     | "다음 5초를 예측" — 좀 어긋남         |
+| 15스텝    | "다음 15초를 예측" — 완전히 다른 세계 |
+
+DiscreteSAC는 **1-step TD bootstrap**만 사용:
+
+$$Q(s, a) = r + \gamma \cdot Q(s', a')$$
+
+실제 다음 상태 $s'$를 버퍼에서 가져오므로 **복합 오차가 없다**.
+
+#### 원인 3: Actor 업데이트의 advantage-action 불일치
+
+```python
+# 1차 상상 루프: advantage 계산용
+for _ in range(imagine_horizon):
+    action_dist = self.actor.get_dist(feat)
+    action = action_dist.sample()        # ← action_A 샘플링
+    ...
+    imagined_rewards.append(r)           # ← action_A에 대한 보상
+
+# advantages = returns(action_A) - values
+
+# 2차 상상 루프: actor loss 계산용
+for t in range(imagine_horizon):
+    dist = self.actor.get_dist(feat)
+    action = dist.sample()               # ← action_B 샘플링 (action_A와 다름!)
+    log_prob = dist.log_prob(action)      # ← action_B의 log_prob
+    actor_loss -= log_prob * advantages[t]  # ← action_A의 advantage를 action_B에 적용!
+```
+
+**문제**: `advantages[t]`는 1차 루프에서 `action_A`를 실행했을 때의 가치인데, 2차 루프에서는 다른 `action_B`를 샘플링하고 그 log_prob에 `action_A`의 advantage를 곱한다. 이는 **잘못된 방향으로 정책을 업데이트**한다.
+
+#### 원인 4: Gradient Clipping 부재
+
+| 항목            | Dreamer                 | DiscreteSAC |
+| --------------- | ----------------------- | ----------- |
+| `max_grad_norm` | **100.0** (사실상 없음) | **1.0**     |
+
+세계 모델의 예측 오차가 클 때 거대한 그래디언트가 발생하면, 네트워크 파라미터가 한 번에 크게 변해서 학습이 "폭주"한다. 이것이 -1700 → -5100으로 급락하는 원인.
+
+#### 원인 5: 에피소드 경계 침범 (SequenceBuffer)
+
+```python
+def sample_sequences(self, batch_size, seq_len):
+    starts = np.random.randint(0, max_start, size=batch_size)
+    idxs = starts[:, None] + np.arange(seq_len)[None, :]  # 연속 인덱스
+```
+
+시퀀스가 `done=True`을 포함할 수 있다. 예를 들어:
+
+```
+[... step_98(에피소드A끝, done=True), step_99(에피소드B시작), step_100 ...]
+```
+
+RSSM이 이 시퀀스를 하나의 연속된 경험으로 처리하면, **에피소드 경계에서 상태 전이가 비논리적**이 되어 세계 모델이 혼란스러워진다.
+
+#### 원인 6: 단일 환경 (n_envs=1)
+
+| 항목          | Dreamer              | DiscreteSAC                 |
+| ------------- | -------------------- | --------------------------- |
+| 환경 수       | **1**                | **4**                       |
+| 데이터 다양성 | 하나의 시퀀스만 수집 | 4개 독립 에피소드 동시 수집 |
+
+세계 모델은 **다양한 경험**이 있어야 일반화된 예측을 학습한다. 1개 환경에서 순차적으로 모은 데이터는 높은 자기상관(autocorrelation)을 가져서 세계 모델이 특정 패턴에 과적합한다.
+
+#### 원인 7: gamma=0.997 (너무 높음)
+
+| 항목    | Dreamer                             | DiscreteSAC                  |
+| ------- | ----------------------------------- | ---------------------------- |
+| `gamma` | **0.997**                           | **0.99**                     |
+| 를 의미 | 333스텝 후의 보상도 74% 가치로 반영 | 100스텝 후의 보상은 37% 가치 |
+
+$\gamma = 0.997$이면 유효 시야(effective horizon)는 $\frac{1}{1-\gamma} = 333$ 스텝이다. 부정확한 세계 모델로 먼 미래까지 반영하면 오차가 증폭된다.
+
+#### 원인 8: Symlog 보상 변환 없음
+
+DreamerV3 논문에서는 보상에 **symlog 변환**을 적용한다:
+
+$$\text{symlog}(x) = \text{sign}(x) \cdot \ln(|x| + 1)$$
+
+우리 환경의 보상 범위:
+
+- `serve_food`: +5 ~ +33
+- `lost_customer`: -15
+- `win`: +200
+
+이 범위 차이가 크면 세계 모델의 보상 예측이 큰 값에 끌려가서 작은 보상 신호를 무시한다.
+
+### 11.3 DiscreteSAC가 잘 되는 이유
+
+| 설계 요소                   | DiscreteSAC의 접근                                     | Dreamer에 없는 것                        |
+| --------------------------- | ------------------------------------------------------ | ---------------------------------------- |
+| **Direct Q-learning**       | 실제 환경 데이터로 직접 Q-value 학습                   | 세계 모델 → 상상 → 간접 학습 (오차 전파) |
+| **learning_starts=20k**     | 충분한 데이터 후 학습 시작                             | 2048 스텝이면 바로 시작                  |
+| **Quantile Regression**     | 보상의 분포 자체를 학습 (25개 분위수)                  | 점 추정(point estimate)만 사용           |
+| **TQC (Top Quantile Crop)** | 3개 Q-네트워크 중 상위 2개 분위수 제거 → 과대추정 방지 | 단일 Critic, 과대추정 제어 없음          |
+| **4 환경 병렬**             | 다양한 데이터, 빠른 수집                               | 1개 환경, 느린 수집                      |
+| **Adaptive α**              | 엔트로피 수준을 자동 조절                              | 고정 `entropy_coef=0.003`                |
+| **max_grad_norm=1.0**       | 안전한 그래디언트 클리핑                               | 100.0 (사실상 없음)                      |
+| **1-step TD**               | 복합 오차 없음                                         | 15-step 상상 (오차 누적)                 |
+
+### 11.4 핵심 차이를 한 문장으로
+
+> **DiscreteSAC**는 "실제로 겪은 경험에서 직접 배우는" 방식이고,
+> **Dreamer**는 "경험을 기반으로 세상의 모델을 먼저 만들고, 그 모델 안에서 상상하며 배우는" 방식이다.
+>
+> 세상의 모델이 정확하면 Dreamer가 훨씬 효율적이지만,
+> 모델이 틀리면 **틀린 세상에서 열심히 연습한 꼴**이 되어 실제 환경에서 엉망이 된다.
+
+### 11.5 수정 방향
+
+위 8가지 문제를 해결하면 Dreamer도 안정적으로 학습할 수 있다:
+
+| 수정                           | 변경 내용                                          | 기대 효과                     |
+| ------------------------------ | -------------------------------------------------- | ----------------------------- | --------- | ------------------ |
+| `learning_starts=20000` 추가   | 2만 스텝까지 랜덤 행동, 충분한 데이터 확보 후 학습 | 세계 모델 초기 품질 대폭 향상 |
+| `max_grad_norm` 100→**1.0**    | 그래디언트 폭주 방지                               | 급격한 성능 하락 방지         |
+| Actor loss 수정                | 2차 롤아웃 제거, 1차 루프에서 바로 log_prob 저장   | advantage-action 일치         |
+| `n_envs` 1→**4**               | 병렬 데이터 수집                                   | 다양성 ↑, 세계 모델 일반화 ↑  |
+| 에피소드 경계 처리             | SequenceBuffer에서 done 이후를 걸러내기            | 깨끗한 시퀀스 학습            |
+| `gamma` 0.997→**0.99**         | 유효 시야 333→100                                  | 오차 증폭 감소                |
+| `imagination_horizon` 15→**5** | 상상 깊이 축소                                     | 복합 오차 대폭 감소           |
+| Symlog 보상 변환               | `sign(x)\*ln(                                      | x                             | +1)` 적용 | 보상 스케일 안정화 |
+
+---
+
 ## 부록: 실행 명령어
 
 ```bash

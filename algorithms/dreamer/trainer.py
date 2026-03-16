@@ -26,8 +26,18 @@ from algorithms.dreamer.networks import (
 # ────────────────────────────────────────────────
 # Sequence Replay Buffer
 # ────────────────────────────────────────────────
+def symlog(x: torch.Tensor) -> torch.Tensor:
+    """DreamerV3 symlog 변환: sign(x) * ln(|x| + 1)"""
+    return torch.sign(x) * torch.log(torch.abs(x) + 1.0)
+
+
+def symexp(x: torch.Tensor) -> torch.Tensor:
+    """symlog의 역변환."""
+    return torch.sign(x) * (torch.exp(torch.abs(x)) - 1.0)
+
+
 class SequenceBuffer:
-    """에피소드를 시퀀스 단위로 저장하는 버퍼."""
+    """에피소드를 시퀀스 단위로 저장하는 버퍼 (에피소드 경계 인식)."""
 
     def __init__(self, obs_dim: int, capacity: int = 500_000):
         self.capacity = capacity
@@ -47,11 +57,25 @@ class SequenceBuffer:
         self.size = min(self.size + 1, self.capacity)
 
     def sample_sequences(self, batch_size: int, seq_len: int):
-        """랜덤 시작점에서 seq_len 길이의 시퀀스를 batch_size개 샘플링."""
+        """에피소드 경계를 넘지 않는 시퀀스를 batch_size개 샘플링."""
         max_start = self.size - seq_len
         if max_start <= 0:
             return None
-        starts = np.random.randint(0, max_start, size=batch_size)
+
+        # 에피소드 경계를 포함하지 않는 유효 시작점 수집
+        valid_starts = []
+        for s in range(max_start):
+            # 시퀀스 내부(마지막 스텝 제외)에 done이 없으면 유효
+            if not np.any(self.dones[s:s + seq_len - 1] > 0.5):
+                valid_starts.append(s)
+
+        if len(valid_starts) < batch_size:
+            # 유효 시작점 부족 시 일반 샘플링 (fallback)
+            starts = np.random.randint(0, max_start, size=batch_size)
+        else:
+            starts = np.array(valid_starts)
+            starts = starts[np.random.randint(0, len(starts), size=batch_size)]
+
         idxs = starts[:, None] + np.arange(seq_len)[None, :]  # [B, T]
 
         return {
@@ -143,49 +167,73 @@ class DreamerTrainer(BaseTrainer):
         seq_len = hp.get("seq_len", 32)
         buffer_size = hp.get("buffer_size", 500_000)
         wm_train_freq = hp.get("world_model_train_freq", 100)
-        imagine_horizon = hp.get("imagination_horizon", 15)
+        imagine_horizon = hp.get("imagination_horizon", 5)
         entropy_coef = hp.get("entropy_coef", 0.003)
-        max_grad_norm = hp.get("max_grad_norm", 100.0)
+        max_grad_norm = hp.get("max_grad_norm", 1.0)
         free_nats = hp.get("free_nats", 1.0)
+        learning_starts = hp.get("learning_starts", 20000)
+        n_envs = self.cfg.get("training", {}).get("n_envs", 1)
         eval_freq = self.cfg.get("training", {}).get("eval_freq", 5000)
 
         replay = SequenceBuffer(self._obs_dim, buffer_size)
-        env = make_env(0, self._seed, self._game_ov, self._reward_cfg)()
+        # 멀티-환경 지원
+        envs = [make_env(i, self._seed + i, self._game_ov, self._reward_cfg)()
+                for i in range(n_envs)]
         eval_env = make_env(0, self._seed + 1000, self._game_ov, self._reward_cfg)()
         early_stop = EarlyStopTracker(patience=50, min_delta=1.0, verbose=1)
 
         writer = SummaryWriter(os.path.join(self.save_path, "tb_logs"))
         eval_timesteps, eval_results = [], []
 
-        obs, _ = env.reset()
-        episode_rewards, ep_reward = [], 0.0
-        best_eval = float("-inf")
+        # 각 환경의 상태 초기화
+        obs_list = []
+        h_list, z_list, prev_action_list = [], [], []
+        ep_reward_list = [0.0] * n_envs
+        for i in range(n_envs):
+            o, _ = envs[i].reset()
+            obs_list.append(o)
+            _h, _z = self.rssm.initial_state(1, self.device)
+            h_list.append(_h)
+            z_list.append(_z)
+            prev_action_list.append(torch.zeros(1, self._act_dim, device=self.device))
 
-        # RSSM running state for action selection
-        h, z = self.rssm.initial_state(1, self.device)
-        prev_action = torch.zeros(1, self._act_dim, device=self.device)
+        episode_rewards = []
+        best_eval = float("-inf")
+        env_idx = 0  # round-robin 인덱스
 
         for step in range(1, self._timesteps + 1):
-            # Select action
-            with torch.no_grad():
-                obs_t = torch.FloatTensor(obs).unsqueeze(0).to(self.device)
-                h, z, _, _ = self.rssm.observe_step(h, z, prev_action, obs_t)
-                feat = self.rssm.get_feature(h, z)
-                action_dist = self.actor.get_dist(feat)
-                action = action_dist.sample().item()
+            # round-robin 환경 선택
+            ei = env_idx % n_envs
+            env_idx += 1
+            obs = obs_list[ei]
+            h, z = h_list[ei], z_list[ei]
+            prev_action = prev_action_list[ei]
+
+            # Select action (learning_starts 이전에는 랜덤)
+            if step < learning_starts:
+                action = np.random.randint(self._act_dim)
+            else:
+                with torch.no_grad():
+                    obs_t = torch.FloatTensor(obs).unsqueeze(0).to(self.device)
+                    h, z, _, _ = self.rssm.observe_step(h, z, prev_action, obs_t)
+                    feat = self.rssm.get_feature(h, z)
+                    action_dist = self.actor.get_dist(feat)
+                    action = action_dist.sample().item()
 
             prev_action = F.one_hot(torch.tensor([action], device=self.device),
                                     self._act_dim).float()
 
-            next_obs, reward, terminated, truncated, info = env.step(action)
+            next_obs, reward, terminated, truncated, info = envs[ei].step(action)
             done = terminated or truncated
             replay.push(obs, action, reward, float(done))
-            obs = next_obs
-            ep_reward += reward
+            obs_list[ei] = next_obs
+            h_list[ei], z_list[ei] = h, z
+            prev_action_list[ei] = prev_action
+            ep_reward_list[ei] += reward
 
             if done:
-                episode_rewards.append(ep_reward)
-                writer.add_scalar("rollout/ep_reward", ep_reward, step)
+                episode_rewards.append(ep_reward_list[ei])
+                writer.add_scalar("rollout/ep_reward", ep_reward_list[ei], step)
                 summary = info.get("episode_summary")
                 if summary:
                     writer.add_scalar("rollout/served", summary.get("customers_served", 0), step)
@@ -193,13 +241,16 @@ class DreamerTrainer(BaseTrainer):
                 if len(episode_rewards) % 10 == 0:
                     print(f"  [Dreamer] 스텝 {step}, 에피소드 {len(episode_rewards)}, "
                           f"평균보상(최근10): {np.mean(episode_rewards[-10:]):.1f}")
-                obs, _ = env.reset()
-                ep_reward = 0.0
-                h, z = self.rssm.initial_state(1, self.device)
-                prev_action = torch.zeros(1, self._act_dim, device=self.device)
+                o, _ = envs[ei].reset()
+                obs_list[ei] = o
+                ep_reward_list[ei] = 0.0
+                _h, _z = self.rssm.initial_state(1, self.device)
+                h_list[ei], z_list[ei] = _h, _z
+                prev_action_list[ei] = torch.zeros(1, self._act_dim, device=self.device)
 
-            # Train world model + actor-critic
-            if step % wm_train_freq == 0 and len(replay) > batch_size * seq_len:
+            # Train world model + actor-critic (learning_starts 이후만)
+            if (step >= learning_starts and step % wm_train_freq == 0
+                    and len(replay) > batch_size * seq_len):
                 metrics = self._train_step(
                     replay, batch_size, seq_len, gamma, lam,
                     imagine_horizon, entropy_coef, max_grad_norm, free_nats)
@@ -227,7 +278,8 @@ class DreamerTrainer(BaseTrainer):
                  timesteps=np.array(eval_timesteps),
                  results=np.array(eval_results))
         writer.close()
-        env.close()
+        for e in envs:
+            e.close()
         eval_env.close()
         print(f"[✓] Dreamer 학습 완료. 모델 → '{self.save_path}/'")
         return {"algorithm": "Dreamer", "timesteps": self._timesteps,
@@ -268,9 +320,10 @@ class DreamerTrainer(BaseTrainer):
         obs_pred = self.obs_decoder(features)
         obs_loss = F.mse_loss(obs_pred, obs_seq)
 
-        # Reward prediction
+        # Reward prediction (symlog 변환)
         rew_pred = self.reward_pred(features)
-        rew_loss = F.mse_loss(rew_pred, rew_seq)
+        rew_target = symlog(rew_seq)
+        rew_loss = F.mse_loss(rew_pred, rew_target)
 
         # Continue prediction
         cont_pred = self.continue_pred(features)
@@ -294,15 +347,16 @@ class DreamerTrainer(BaseTrainer):
             max_grad_norm)
         self._world_opt.step()
 
-        # ── 2) Actor-Critic: Imagine trajectories ──
+        # ── 2) Actor-Critic: Imagine trajectories (단일 루프 — advantage-action 일치) ──
         with torch.no_grad():
-            # Start imagination from last posterior state
             init_h = h.detach()
             init_z = z.detach()
 
         imagined_features = []
         imagined_rewards = []
         imagined_continues = []
+        imagined_log_probs = []
+        imagined_entropies = []
         im_h, im_z = init_h, init_z
 
         for _ in range(imagine_horizon):
@@ -311,19 +365,25 @@ class DreamerTrainer(BaseTrainer):
 
             action_dist = self.actor.get_dist(feat)
             action = action_dist.sample()
+            imagined_log_probs.append(action_dist.log_prob(action))
+            imagined_entropies.append(action_dist.entropy())
             action_oh = F.one_hot(action, self._act_dim).float()
 
             im_h, im_z = self.rssm.imagine_step(im_h, im_z, action_oh)
 
             with torch.no_grad():
-                r = self.reward_pred(self.rssm.get_feature(im_h, im_z))
-                c = torch.sigmoid(self.continue_pred(self.rssm.get_feature(im_h, im_z)))
+                next_feat = self.rssm.get_feature(im_h, im_z)
+                r_sym = self.reward_pred(next_feat)
+                r = symexp(r_sym)  # symlog → 원래 스케일 복원
+                c = torch.sigmoid(self.continue_pred(next_feat))
             imagined_rewards.append(r)
             imagined_continues.append(c)
 
         im_feats = torch.stack(imagined_features, dim=0)  # [H, B, feat]
         im_rews = torch.stack(imagined_rewards, dim=0)     # [H, B]
         im_conts = torch.stack(imagined_continues, dim=0)  # [H, B]
+        im_log_probs = torch.stack(imagined_log_probs, dim=0)  # [H, B]
+        im_entropies = torch.stack(imagined_entropies, dim=0)  # [H, B]
 
         # Compute lambda-returns
         with torch.no_grad():
@@ -347,25 +407,10 @@ class DreamerTrainer(BaseTrainer):
         nn.utils.clip_grad_norm_(self.critic.parameters(), max_grad_norm)
         self._critic_opt.step()
 
-        # ── Actor loss (REINFORCE with baseline + entropy) ──
+        # ── Actor loss (같은 루프의 log_prob × advantage — 불일치 해결) ──
         advantages = (returns - values).detach()
-        actor_loss = torch.tensor(0.0, device=self.device)
-        total_entropy = torch.tensor(0.0, device=self.device)
-
-        im_h2, im_z2 = init_h.detach(), init_z.detach()
-        for t in range(imagine_horizon):
-            feat = self.rssm.get_feature(im_h2, im_z2)
-            dist = self.actor.get_dist(feat)
-            action = dist.sample()
-
-            log_prob = dist.log_prob(action)
-            actor_loss = actor_loss - (log_prob * advantages[t]).mean()
-            total_entropy = total_entropy + dist.entropy().mean()
-
-            action_oh = F.one_hot(action, self._act_dim).float()
-            im_h2, im_z2 = self.rssm.imagine_step(im_h2.detach(), im_z2.detach(), action_oh)
-
-        actor_loss = actor_loss / imagine_horizon - entropy_coef * total_entropy / imagine_horizon
+        actor_loss = -(im_log_probs * advantages).mean()
+        actor_loss = actor_loss - entropy_coef * im_entropies.mean()
 
         self._actor_opt.zero_grad()
         actor_loss.backward()
