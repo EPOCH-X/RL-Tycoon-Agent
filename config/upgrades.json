@@ -44,7 +44,7 @@
     "cost_multiplier": 2.0,
     "effect_type": "cook_speed",
     "effect_value": 0.10,
-    "max_level": 3,
+    "max_level": 5,
     "unlock_profit": 100
   },
   {
@@ -53,10 +53,11 @@
     "category": "facility",
     "description": "새 테이블 설치",
     "base_cost": 120,
-    "cost_multiplier": 1.5,
+    "cost_multiplier": 1.0,
+    "cost_list": [120, 240, 360, 480, 600, 720, 840, 960, 1080, 1200],
     "effect_type": "buy_table",
     "effect_value": 1,
-    "max_level": 4,
+    "max_level": 10,
     "unlock_profit": 0
   },
   {

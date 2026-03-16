@@ -168,6 +168,9 @@ class Shop:
         # ── leaving customers (매장 밖으로 걸어 나가는 중) ──
         self.leaving_customers: list[Customer] = []
 
+        # ── floating texts (결제 금액 등 UI 표시) ──
+        self.floating_texts: list[dict] = []
+
         # ── food unlock ──────────────────────────
         self.unlocked_food: set[str] = set()
         for item in self.menu:
@@ -471,6 +474,7 @@ class Shop:
         self.waiting_customers_seated = 0
         self.waiting_customers_left = 0
         self.leaving_customers = []
+        self.floating_texts = []
 
         for uid in self.upgrade_levels:
             self.upgrade_levels[uid] = 0
@@ -589,6 +593,13 @@ class Shop:
                 self._record_satisfaction(cust.calc_satisfaction())
                 self.customers_served += 1
                 events.append(("customer_payment", float(payment)))
+                # +$X 플로팅 텍스트
+                self.floating_texts.append({
+                    "text": f"+${payment}",
+                    "x": table.grid_x * TILE_SIZE + TILE_SIZE // 2,
+                    "y": table.grid_y * TILE_SIZE,
+                    "timer": 1.2,
+                })
                 # 떠난 손님 관련 잔여 음식 정리 (안전장치)
                 self.kitchen.remove_for_table(table.table_id)
                 if self.bartender_hired:
@@ -628,6 +639,12 @@ class Shop:
             if not cust.is_done:
                 still_leaving.append(cust)
         self.leaving_customers = still_leaving
+
+        # 4c) Floating texts tick
+        for ft in self.floating_texts:
+            ft["timer"] -= dt
+            ft["y"] -= 30 * dt          # float upward
+        self.floating_texts = [ft for ft in self.floating_texts if ft["timer"] > 0]
 
         # 5) Employee AI
         self._update_employees(dt)
@@ -816,7 +833,7 @@ class Shop:
         """Check if player hitbox at (x,y) doesn't overlap solid tiles."""
         cx = x + TILE_SIZE / 2
         cy = y + TILE_SIZE / 2
-        r = PLAYER_RADIUS
+        r = PLAYER_RADIUS - 1  # 1px margin to prevent tile-boundary clipping
         for corner_x, corner_y in [(cx - r, cy - r), (cx + r, cy - r),
                                     (cx - r, cy + r), (cx + r, cy + r)]:
             gx = int(corner_x) // TILE_SIZE
@@ -1474,6 +1491,7 @@ class Shop:
                 new_pos = self._kitchen_expand_slots.pop(0)
                 self.kitchen_counter_positions.add(new_pos)
                 self.layout[new_pos[1]][new_pos[0]] = 3   # kitchen tile
+                self._push_entities_off_tile(new_pos)
             self.max_chefs += int(val)
             self.kitchen.storage_capacity += int(val)
             self._msg(f"주방 확장! (보관:{self.kitchen.storage_capacity} 최대요리사:{self.max_chefs}명)")
@@ -1499,6 +1517,26 @@ class Shop:
                 emp.speed += bonus
             self._employee_speed_bonus = getattr(
                 self, '_employee_speed_bonus', 0.0) + bonus
+
+    def _push_entities_off_tile(self, tile_pos: tuple[int, int]):
+        """타일이 비이동 가능으로 변경될 때 해당 위치의 직원을 밀어냄."""
+        tx, ty = tile_pos
+        for emp in self.employees:
+            egx = int((emp.x + TILE_SIZE / 2) // TILE_SIZE)
+            egy = int((emp.y + TILE_SIZE / 2) // TILE_SIZE)
+            if (egx, egy) == (tx, ty):
+                # 인접한 walkable 타일로 이동
+                for dx, dy in ((0, 1), (0, -1), (-1, 0), (1, 0)):
+                    nx, ny = tx + dx, ty + dy
+                    if self._is_walkable_tile(nx, ny):
+                        emp.x, emp.y = self._tile_center(nx, ny)
+                        emp.x -= TILE_SIZE / 2
+                        emp.y -= TILE_SIZE / 2
+                        break
+                # 경로 재계산
+                emp.waypoints = []
+                if emp.state == Employee.MOVING:
+                    self._set_employee_waypoints(emp)
 
     def _activate_next_table(self):
         if not self._purchasable_tables:
@@ -1644,9 +1682,32 @@ class Shop:
                         emp.state = Employee.ACTING
                         emp.action_timer = EMPLOYEE_ACTION_DELAY
                 # Recompute path if stuck too long
-                if emp._stuck_timer > 1.5:
-                    self._set_employee_waypoints(emp)
-                    emp._stuck_timer = 0.0
+                if emp._stuck_timer > 1.0:
+                    rescue_count = getattr(emp, '_rescue_count', 0) + 1
+                    emp._rescue_count = rescue_count
+                    if rescue_count >= 3:
+                        # Hard rescue: give up task after repeated failures
+                        emp._rescue_count = 0
+                        emp.carrying = None
+                        emp.finish_task()
+                    else:
+                        # 현재 위치가 non-walkable이면 인접 타일로 탈출
+                        egx = int((emp.x + TILE_SIZE / 2) // TILE_SIZE)
+                        egy = int((emp.y + TILE_SIZE / 2) // TILE_SIZE)
+                        if not self._is_walkable_tile(egx, egy):
+                            for ddx, ddy in ((0, 1), (0, -1), (-1, 0), (1, 0)):
+                                nx, ny = egx + ddx, egy + ddy
+                                if self._is_walkable_tile(nx, ny):
+                                    emp.x, emp.y = self._tile_center(nx, ny)
+                                    emp.x -= TILE_SIZE / 2
+                                    emp.y -= TILE_SIZE / 2
+                                    break
+                        else:
+                            # Snap to tile center to avoid sub-pixel boundary issues
+                            emp.x = egx * TILE_SIZE
+                            emp.y = egy * TILE_SIZE
+                        self._set_employee_waypoints(emp)
+                        emp._stuck_timer = 0.0
             elif emp.state == Employee.ACTING:
                 emp.action_timer -= dt
                 if emp.action_timer <= 0:
@@ -1780,11 +1841,21 @@ class Shop:
             table = self._find_table(emp.target_table_id)
             if table and table.customer and emp.carrying:
                 ct = emp.carrying["type"]
+                served = False
                 if ct == "food" and table.customer.state == CustomerState.ORDER_TAKEN:
-                    table.customer.serve_food()
+                    served = table.customer.serve_food()
                 elif ct == "drink":
-                    table.customer.serve_drink()
-                emp.carrying = None
+                    served = table.customer.serve_drink()
+                if served:
+                    emp.carrying = None
+                else:
+                    # 서빙 실패 → 쓰레기통으로 폐기
+                    if self.trash_can_positions:
+                        tcx, tcy = self._trash_center(emp.x, emp.y)
+                        emp.assign("discard_trash", tcx, tcy)
+                        self._set_employee_waypoints(emp)
+                        return
+                    emp.carrying = None
             emp.finish_task()
 
         elif task == "discard_trash":

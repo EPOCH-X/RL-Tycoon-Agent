@@ -264,5 +264,5 @@ class Customer(Entity):
             return -1.0
         ratio = self.patience_ratio
         if ratio >= SATISFACTION_FAST_THRESHOLD:
-            return 0.3 + 0.3 * ratio   # max ~0.6 for very fast service
-        return 0.1 + 0.2 * ratio        # max ~0.22 for slow service
+            return 0.5 + 0.5 * ratio   # max 1.0 for very fast service
+        return 0.2 + 0.3 * ratio        # max ~0.38 for slow service

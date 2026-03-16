@@ -51,19 +51,34 @@ def get_sb3_device(policy: str = "MlpPolicy") -> str:
     return "cpu"
 
 
-def load_algo_config(algo_name: str, config_path: str | None = None) -> dict:
+def linear_schedule(initial_value: float):
+    """SB3용 선형 학습률 스케줄. progress_remaining 1→0에 따라 lr이 선형 감소."""
+    def schedule(progress_remaining: float) -> float:
+        return progress_remaining * initial_value
+    return schedule
+
+
+def load_algo_config(algo_name: str, config_path: str | None = None,
+                     days: int | None = None) -> dict:
     """알고리즘별 설정 JSON을 로드합니다.
 
-    우선순위: config_path > algorithms/<algo>/config.json > config/train_config.json
+    우선순위: config_path > algorithms/<algo>/config_{days}.json
+             > algorithms/<algo>/config.json > config/train_config.json
     """
     if config_path and os.path.isfile(config_path):
         print(f"  [설정 로드] {algo_name} ← 사용자 지정: {config_path}")
         with open(config_path, encoding="utf-8") as f:
             return json.load(f)
-    # 알고리즘 폴더 내 기본 config
-    algo_dir = os.path.join(
-        os.path.dirname(__file__), algo_name.lower(), "config.json"
-    )
+    algo_base = os.path.join(os.path.dirname(__file__), algo_name.lower())
+    # 60일 전용 config 우선 탐색
+    if days and days != 30:
+        day_cfg = os.path.join(algo_base, f"config_{days}.json")
+        if os.path.isfile(day_cfg):
+            print(f"  [설정 로드] {algo_name} ← {days}일 전용: {day_cfg}")
+            with open(day_cfg, encoding="utf-8") as f:
+                return json.load(f)
+    # 알고리즘 폴더 내 기본 config (30일)
+    algo_dir = os.path.join(algo_base, "config.json")
     if os.path.isfile(algo_dir):
         print(f"  [설정 로드] {algo_name} ← 전용 설정: {algo_dir}")
         with open(algo_dir, encoding="utf-8") as f:

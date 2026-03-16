@@ -66,7 +66,9 @@ def train_single(algo_name: str, args) -> dict[str, Any]:
     TrainerClass = get_algorithm(algo_name)
     trainer = TrainerClass()
 
-    base_path = args.save_path or f"models/{algo_name.lower()}"
+    days = getattr(args, 'days', None)
+    day_suffix = f"_{days}d" if days and days != 30 else ""
+    base_path = args.save_path or f"models/{algo_name.lower()}{day_suffix}"
     save_path = _next_version_path(base_path)
     kr = ALGO_KR.get(algo_name, algo_name)
 
@@ -79,7 +81,10 @@ def train_single(algo_name: str, args) -> dict[str, Any]:
         overrides["seed"] = args.seed
 
     # 사용될 설정 파일 경로 표시
-    config_src = args.config or f"algorithms/{algo_name.lower()}/config.json"
+    if days and days != 30:
+        config_src = args.config or f"algorithms/{algo_name.lower()}/config_{days}.json"
+    else:
+        config_src = args.config or f"algorithms/{algo_name.lower()}/config.json"
 
     print(f"\n{'='*60}")
     print(f"  학습 시작 (Training): {algo_name} ({kr})")
@@ -90,7 +95,8 @@ def train_single(algo_name: str, args) -> dict[str, Any]:
     print(f"{'='*60}\n")
 
     start = time.time()
-    trainer.build(config_path=args.config, save_path=save_path, **overrides)
+    trainer.build(config_path=args.config, save_path=save_path, days=days,
+                  **overrides)
     result = trainer.train()
     elapsed = time.time() - start
     result["wall_time_sec"] = round(elapsed, 1)
@@ -212,6 +218,8 @@ def main():
                    help="병렬 환경 수")
     p.add_argument("--seed", type=int, default=None,
                    help="랜덤 시드")
+    p.add_argument("--days", type=int, default=None, choices=[30, 60],
+                   help="게임 일수 (30 또는 60, 미지정 시 config 기본값)")
 
     p.add_argument("--benchmark", action="store_true",
                    help="모든 알고리즘 벤치마크 실행")

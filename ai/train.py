@@ -65,10 +65,20 @@ def _save_training_plots(save_path: str):
         plt.close()
 
 
-def load_train_config(config_path: str | None = None) -> dict:
+def load_train_config(config_path: str | None = None,
+                      days: int | None = None) -> dict:
+    """Load training config JSON. Falls back to config/train_config.json."""
     if config_path and os.path.isfile(config_path):
         with open(config_path, encoding="utf-8") as f:
             return json.load(f)
+    # 60일 모드일 때 algorithms/ppo/config_60.json 우선
+    if days and days != 30:
+        day_cfg = os.path.join(os.path.dirname(__file__), os.pardir,
+                               "algorithms", "ppo", f"config_{days}.json")
+        day_cfg = os.path.normpath(day_cfg)
+        if os.path.isfile(day_cfg):
+            with open(day_cfg, encoding="utf-8") as f:
+                return json.load(f)
     return load_json_config("train_config.json")
 
 
@@ -96,7 +106,7 @@ def _make_env(
 
 
 def train(args):
-    cfg = load_train_config(args.config)
+    cfg = load_train_config(args.config, days=args.days)
     t_cfg = cfg.get("training", {})
     hp = cfg.get("hyperparameters", {})
     net_cfg = cfg.get("network", {})
@@ -108,7 +118,8 @@ def train(args):
     n_envs = args.n_envs or t_cfg.get("n_envs", 4)
     seed = args.seed if args.seed is not None else t_cfg.get("seed", 42)
     eval_freq = t_cfg.get("eval_freq", 5000)
-    save_path = args.save_path
+    day_suffix = f"_{args.days}d" if args.days and args.days != 30 else ""
+    save_path = args.save_path + day_suffix if day_suffix else args.save_path
 
     os.makedirs(save_path, exist_ok=True)
     with open(os.path.join(save_path, "train_config_used.json"), "w", encoding="utf-8") as f:
@@ -181,6 +192,8 @@ def main():
                    help="Override number of parallel envs")
     p.add_argument("--seed", type=int, default=None,
                    help="Override random seed")
+    p.add_argument("--days",       type=int,   default=None, choices=[30, 60],
+                   help="Game day limit (30 or 60)")
     train(p.parse_args())
 
 

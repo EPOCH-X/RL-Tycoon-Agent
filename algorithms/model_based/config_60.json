@@ -1,33 +1,38 @@
 {
-  "_comment": "PPO 전용 하이퍼파라미터. Stable-Baselines3 PPO 기반.",
-  "algorithm": "PPO",
+  "_comment": "Model-Based RL 설정 (60일 모드). config.json(30일)과 동일하되 day_limit=60.",
+  "algorithm": "ModelBased",
   "policy": "MlpPolicy",
   "training": {
-    "total_timesteps": 10000000,
-    "n_envs": 8,
+    "total_timesteps": 300000,
     "seed": 42,
     "eval_freq": 5000,
-    "patience": 150
+    "world_model_train_freq": 1000,
+    "world_model_epochs": 10,
+    "world_model_batch_size": 128,
+    "planning_horizon": 10,
+    "num_simulated_trajectories": 100,
+    "real_data_ratio": 0.5,
+    "buffer_size": 100000
   },
   "hyperparameters": {
     "learning_rate": 0.0003,
-    "lr_schedule": "linear",
-    "n_steps": 2048,
-    "batch_size": 128,
-    "n_epochs": 10,
     "gamma": 0.99,
-    "gae_lambda": 0.95,
-    "clip_range": 0.2,
-    "ent_coef": 0.05,
-    "vf_coef": 0.5,
-    "max_grad_norm": 0.5
+    "world_model_lr": 0.001,
+    "world_model_hidden": [
+      256,
+      256
+    ],
+    "policy_hidden": [
+      128,
+      128
+    ]
   },
   "network": {
     "net_arch": [
-      512,
-      256
+      128,
+      128
     ],
-    "activation_fn": "tanh"
+    "activation_fn": "relu"
   },
   "reward_shaping": {
     "take_order": 6.0,
@@ -59,6 +64,6 @@
   },
   "game_overrides": {
     "target_money": null,
-    "day_limit": null
+    "day_limit": 60
   }
 }

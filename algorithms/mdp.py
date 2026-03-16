@@ -36,7 +36,7 @@ class MDPState:
     # 매장 상태
     shop_rating: float = 0.5
     tables_active: int = 4
-    max_tables: int = 8
+    max_tables: int = 14
     kitchen_capacity: int = 1
     employees: int = 0
 

@@ -47,22 +47,28 @@ Python 3.12 + **Pygame 2.6** 기반 2D 레스토랑 매니지먼트 게임
 # 1) 의존성 설치
 pip install -r requirements.txt
 
-# 2) 게임 실행 (인간 솔로)
-python main.py --mode human
+# 2) 게임 실행 (대화형 메뉴 – 모드/일수 선택)
+python main.py
 
-# 3) 인간 vs 랜덤 AI 대결
-python main.py --mode versus
+# 3) CLI로 직접 실행
+python main.py --mode human                    # 솔로 30일
+python main.py --mode human --days 60           # 솔로 60일
+python main.py --mode versus --days 30          # 대결 30일 (vs 랜덤 AI)
+python main.py --mode versus --days 60          # 대결 60일
+python main.py --mode versus --model models/ppo/best_model.zip  # 학습된 AI와 대결
 
-# 4) 인간 vs 학습된 AI 대결
-python main.py --mode versus --model models/best_model.zip
+# 4) RL 에이전트 학습 (30일 / 60일)
+python -m algorithms.train_launcher --algo PPO                  # 30일 (config 기본)
+python -m algorithms.train_launcher --algo PPO --days 60        # 60일
+python -m algorithms.train_launcher --algo A3C --days 30        # A3C 30일
+python -m algorithms.train_launcher --algo A3C --days 60        # A3C 60일
+python -m algorithms.train_launcher --algo DQN --days 60        # DQN 60일
+python -m algorithms.train_launcher --algo SAC --days 60        # SAC 60일
 
-# 5) RL 에이전트 학습 (config/train_config.json 설정 기반)
-python -m ai.train
+# 5) 학습 시 일부 파라미터 오버라이드
+python -m algorithms.train_launcher --algo PPO --days 60 --timesteps 500000
 
-# 6) 학습 시 일부 파라미터 오버라이드
-python -m ai.train --timesteps 500000 --n-envs 8
-
-# 7) 커스텀 설정 파일로 학습
+# 6) 커스텀 설정 파일로 학습
 python -m ai.train --config my_train_config.json
 ```
 
@@ -70,10 +76,11 @@ python -m ai.train --config my_train_config.json
 
 | 옵션               | 기본값     | 설명                               |
 | ------------------ | ---------- | ---------------------------------- |
-| `--mode`         | `human`  | 게임 모드 (`human` / `versus`) |
-| `--model`        | _(없음)_ | 학습된 모델 경로 (versus 모드용)   |
+| `--mode`         | _(메뉴)_ | 게임 모드 (`human` / `versus` / `watch`) – 미지정 시 대화형 메뉴 |
+| `--days`         | `30`     | 게임 일수 선택 (30 또는 60)          |
+| `--model`        | _(없음)_ | 학습된 모델 경로 (versus/watch 모드용)   |
 | `--target-money` | `1500`   | 목표 금액 오버라이드               |
-| `--day-limit`    | `30`     | 제한 일수 오버라이드               |
+| `--day-limit`    | `30`     | 제한 일수 오버라이드 (세밀 지정)     |
 
 ---
 
@@ -669,10 +676,52 @@ RL-Tycoon-Agent/
 
 ---
 
-## 강화학습 설정 분리 (train_config.json)
+## 강화학습 설정 분리
 
-`config/train_config.json`에 모든 학습 파라미터가 분리되어 있습니다.
+각 알고리즘의 학습 설정은 `algorithms/<algo>/config.json` (30일)과 `config_60.json` (60일)에 분리되어 있습니다.
 **팀원들은 이 파일만 수정하여 자유롭게 실험**할 수 있습니다.
+
+### 설정 파일 구조
+
+```
+algorithms/
+├── ppo/
+│   ├── config.json          # 30일 기본 설정
+│   └── config_60.json       # 60일 설정 (day_limit=60)
+├── a3c/
+│   ├── config.json
+│   └── config_60.json
+├── dqn/
+│   ├── config.json
+│   └── config_60.json
+├── sac/
+│   ├── config.json
+│   └── config_60.json
+├── marl/
+│   ├── config.json
+│   └── config_60.json
+└── model_based/
+    ├── config.json
+    └── config_60.json
+```
+
+`--days 60` 옵션을 사용하면 자동으로 `config_60.json`이 선택됩니다.
+30일은 기본값이므로 `--days 30`은 생략 가능합니다.
+
+### 학습 CLI 옵션 (train_launcher)
+
+| 옵션              | 기본값       | 설명                                         |
+| ----------------- | ------------ | -------------------------------------------- |
+| `--algo`        | `PPO`      | 알고리즘 선택 (PPO, DQN, A3C, SAC, MARL 등) |
+| `--days`        | _(config)_ | 게임 일수 (30 또는 60)                       |
+| `--timesteps`   | _(config)_ | 총 학습 스텝 오버라이드                      |
+| `--save-path`   | 자동 생성    | 모델 저장 경로                               |
+| `--n-envs`      | _(config)_ | 병렬 환경 수                                 |
+| `--seed`        | _(config)_ | 랜덤 시드                                    |
+| `--benchmark`   |              | 모든 알고리즘 벤치마크 실행                  |
+| `--evaluate`    |              | 학습된 모델 평가 모드                        |
+
+### config.json 주요 필드 예시 (PPO)
 
 ```json
 {
@@ -873,25 +922,48 @@ Shop.step()은 이벤트 리스트를 반환하고, `ai/reward.py`의 `RewardCal
 ### 학습 실행 & 확인
 
 ```bash
-# 기본 학습 (config 파일 기반)
-python -m ai.train
+# 기본 30일 학습 (algorithms/<algo>/config.json 기반)
+python -m algorithms.train_launcher --algo PPO
+python -m algorithms.train_launcher --algo A3C
+
+# 60일 학습 (algorithms/<algo>/config_60.json 자동 선택)
+python -m algorithms.train_launcher --algo PPO --days 60
+python -m algorithms.train_launcher --algo A3C --days 60
+python -m algorithms.train_launcher --algo DQN --days 60
+python -m algorithms.train_launcher --algo SAC --days 60
+
+# legacy SB3 PPO 트레이너로 60일 학습
+python -m ai.train --days 60
 
 # TensorBoard로 학습 곡선 확인
 tensorboard --logdir models/tb_logs
 
-# 학습된 모델로 대결
-python main.py --mode versus --model models/best_model.zip
+# 학습된 모델로 대결 (30일)
+python main.py --mode versus --model models/ppo/best_model.zip
+
+# 학습된 모델로 대결 (60일)
+python main.py --mode versus --days 60 --model models/ppo_60d/best_model.zip
 ```
+
+> **참고**: 30일용 모델과 60일용 모델은 동일한 관측 공간(80차원, 0–1 정규화)을 사용하므로 교차 사용이 가능합니다.
+> 다만 최적의 성능을 위해서는 동일한 일수로 학습된 모델을 사용하는 것을 권장합니다.
 
 ### 학습 시 자동 저장 파일
 
 ```
 models/
-├── best_model.zip          # 평가 최고 성능 모델
-├── final_model.zip         # 학습 완료 시점 모델
-├── train_config_used.json  # 이 학습에 사용된 설정 (재현성)
-├── tb_logs/                # TensorBoard 로그
-└── eval_logs/              # 평가 로그
+├── ppo/                        # 30일 PPO 모델
+│   ├── best_model.zip
+│   ├── final_model.zip
+│   ├── train_config_used.json
+│   ├── tb_logs/
+│   └── eval_logs/
+├── ppo_60d/                    # 60일 PPO 모델
+│   ├── best_model.zip
+│   └── ...
+├── a3c/                        # 30일 A3C
+├── a3c_60d/                    # 60일 A3C
+└── ...                         # 다른 알고리즘도 동일
 ```
 
 ---

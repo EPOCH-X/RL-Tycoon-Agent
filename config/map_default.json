@@ -44,6 +44,12 @@
     { "id": 4, "grid_x": 2, "grid_y": 6 },
     { "id": 5, "grid_x": 4, "grid_y": 6 },
     { "id": 6, "grid_x": 6, "grid_y": 6 },
-    { "id": 7, "grid_x": 8, "grid_y": 6 }
+    { "id": 7, "grid_x": 8, "grid_y": 6 },
+    { "id": 8, "grid_x": 10, "grid_y": 3 },
+    { "id": 9, "grid_x": 12, "grid_y": 3 },
+    { "id": 10, "grid_x": 10, "grid_y": 6 },
+    { "id": 11, "grid_x": 12, "grid_y": 6 },
+    { "id": 12, "grid_x": 14, "grid_y": 3 },
+    { "id": 13, "grid_x": 14, "grid_y": 6 }
   ]
 }

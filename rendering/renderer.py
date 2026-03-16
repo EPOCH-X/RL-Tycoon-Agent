@@ -60,6 +60,7 @@ class Renderer:
         self._draw_employees(surface, shop, offset_x, offset_y)
         shop.player.render(surface, self.am, offset_x, offset_y)
         self._draw_carry_labels(surface, shop, offset_x, offset_y)
+        self._draw_floating_texts(surface, shop, offset_x, offset_y)
         self._draw_ui(surface, shop, offset_x, offset_y)
         self._draw_upgrade_panel(surface, shop, offset_x, offset_y)
         self._draw_trait_popup(surface, shop, offset_x, offset_y)
@@ -655,6 +656,18 @@ class Renderer:
             surface.blit(lbl, lbl.get_rect(
                 centerx=int(px + TILE_SIZE // 2),
                 bottom=int(py) - 10 - i * 14))
+
+    # ═══════════════════════════════════════════════
+    #  Floating texts (+$X payment labels)
+    # ═══════════════════════════════════════════════
+    def _draw_floating_texts(self, surface, shop, ox, oy):
+        for ft in shop.floating_texts:
+            alpha = min(255, int(255 * (ft["timer"] / 1.2)))
+            txt = self.font_md.render(ft["text"], True, (50, 255, 50))
+            txt.set_alpha(alpha)
+            surface.blit(txt, txt.get_rect(
+                centerx=int(ft["x"]) + ox,
+                bottom=int(ft["y"]) + oy))
 
     # ═══════════════════════════════════════════════
     #  Trait selection popup

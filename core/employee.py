@@ -43,6 +43,7 @@ class Employee(Entity):
 
         # Stuck detection
         self._stuck_timer: float = 0.0
+        self._rescue_count: int = 0
         self._prev_x: float = x
         self._prev_y: float = y
 
@@ -137,6 +138,7 @@ class Employee(Entity):
         self.target_y = target_y
         self.target_table_id = table_id
         self.state = self.MOVING
+        self._rescue_count = 0
 
     def finish_task(self):
         self.task = None
@@ -145,6 +147,7 @@ class Employee(Entity):
         self.target_table_id = None
         self.state = self.IDLE
         self._stuck_timer = 0.0
+        self._rescue_count = 0
         self.waypoints = []
 
     # ── visual ────────────────────────────────────

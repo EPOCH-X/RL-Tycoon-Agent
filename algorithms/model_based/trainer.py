@@ -159,7 +159,8 @@ class ModelBasedTrainer(BaseTrainer):
 
     def build(self, cfg: dict | None = None, config_path: str | None = None,
               save_path: str | None = None, **overrides) -> None:
-        self.cfg = cfg or load_algo_config("model_based", config_path)
+        days = overrides.pop("days", None)
+        self.cfg = cfg or load_algo_config("model_based", config_path, days=days)
         t = self.cfg.get("training", {})
         hp = self.cfg.get("hyperparameters", {})
         game_ov = self.cfg.get("game_overrides", {})

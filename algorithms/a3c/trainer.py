@@ -164,7 +164,8 @@ class A3CTrainer(BaseTrainer):
 
     def build(self, cfg: dict | None = None, config_path: str | None = None,
               save_path: str | None = None, **overrides) -> None:
-        self.cfg = cfg or load_algo_config("a3c", config_path)
+        days = overrides.pop("days", None)
+        self.cfg = cfg or load_algo_config("a3c", config_path, days=days)
         t = self.cfg.get("training", {})
         net = self.cfg.get("network", {})
         game_ov = self.cfg.get("game_overrides", {})

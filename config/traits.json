@@ -19,14 +19,6 @@
       "max_stacks": 3
     },
     {
-      "id": "skilled_server",
-      "name": "숙련된 서빙",
-      "description": "한번에 2개 운반 가능",
-      "effect": "carry_capacity",
-      "value": 1,
-      "max_stacks": 1
-    },
-    {
       "id": "charming",
       "name": "매력적",
       "description": "팁 +30%",
