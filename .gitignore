@@ -1,0 +1,45 @@
+# ── Python ──
+__pycache__/
+*.py[cod]
+*.pyo
+*.egg-info/
+dist/
+build/
+*.egg
+
+# ── Virtual Environment ──
+venv/
+.venv/
+env/
+
+# ── IDE ──
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# ── Training Outputs ──
+models/
+tb_logs/
+eval_logs/
+*.zip
+*.pt
+*.pth
+*.onnx
+
+# ── Logs ──
+*.log
+wandb/
+
+# ── Environment ──
+.env
+.env.local
+
+# ── OS ──
+Thumbs.db
+Desktop.ini
+
+**__pycache__/
+5060requirements.txt

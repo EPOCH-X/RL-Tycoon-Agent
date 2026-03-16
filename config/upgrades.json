@@ -15,7 +15,7 @@
     "id": "kitchen_expand",
     "name": "주방 확장",
     "category": "facility",
-    "description": "주방 칸 +1 (요리사 고용 한도 증가)",
+    "description": "주방 칸 +1 (보관 +1, 요리사 한도 +1)",
     "base_cost": 200,
     "cost_multiplier": 2.0,
     "effect_type": "kitchen_expand",
@@ -39,12 +39,12 @@
     "id": "cook_speed",
     "name": "조리 속도 업",
     "category": "facility",
-    "description": "조리 속도 +25%",
+    "description": "조리 속도 +10%",
     "base_cost": 120,
     "cost_multiplier": 2.0,
     "effect_type": "cook_speed",
-    "effect_value": 0.25,
-    "max_level": 3,
+    "effect_value": 0.10,
+    "max_level": 5,
     "unlock_profit": 100
   },
   {
@@ -53,10 +53,11 @@
     "category": "facility",
     "description": "새 테이블 설치",
     "base_cost": 120,
-    "cost_multiplier": 1.5,
+    "cost_multiplier": 1.0,
+    "cost_list": [120, 240, 360, 480, 600, 720, 840, 960, 1080, 1200],
     "effect_type": "buy_table",
     "effect_value": 1,
-    "max_level": 4,
+    "max_level": 10,
     "unlock_profit": 0
   },
   {
@@ -77,11 +78,12 @@
     "category": "staff",
     "description": "자동 주문 받기/서빙",
     "base_cost": 200,
-    "cost_multiplier": 2.5,
+    "cost_multiplier": 1.0,
+    "cost_list": [200, 400, 600, 800, 1000],
     "effect_type": "hire_waiter",
     "effect_value": 1,
-    "max_level": 2,
-    "unlock_profit": 400
+    "max_level": 5,
+    "unlock_profit": 350
   },
   {
     "id": "hire_bartender",
@@ -96,27 +98,15 @@
     "unlock_profit": 300
   },
   {
-    "id": "hire_delivery",
-    "name": "배달기사 고용",
-    "category": "staff",
-    "description": "배달 서비스 시작",
-    "base_cost": 180,
-    "cost_multiplier": 1.0,
-    "effect_type": "hire_delivery",
-    "effect_value": 1,
-    "max_level": 1,
-    "unlock_profit": 800
-  },
-  {
     "id": "employee_speed",
     "name": "직원 속도 업",
     "category": "staff",
-    "description": "직원 이동 속도 +25%",
+    "description": "직원 이동 속도 +10%",
     "base_cost": 150,
     "cost_multiplier": 2.0,
     "effect_type": "employee_speed",
-    "effect_value": 0.25,
+    "effect_value": 0.10,
     "max_level": 3,
-    "unlock_profit": 300
+    "unlock_profit": 250
   }
 ]
