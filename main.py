@@ -19,7 +19,7 @@ def _show_menu():
     import pygame
     pygame.init()
 
-    WIDTH, HEIGHT = 520, 420
+    WIDTH, HEIGHT = 520, 490
     screen = pygame.display.set_mode((WIDTH, HEIGHT))
     pygame.display.set_caption("RL 타이쿤 – 모드 선택")
 
@@ -45,6 +45,7 @@ def _show_menu():
         {"label": "🎮  솔로 모드 (60일)", "mode": "human", "days": 60, "rect": None},
         {"label": "⚔️  대결 모드 (30일)", "mode": "versus", "days": 30, "rect": None},
         {"label": "⚔️  대결 모드 (60일)", "mode": "versus", "days": 60, "rect": None},
+        {"label": "🏆  토너먼트 모드", "mode": "tournament", "days": 30, "rect": None},
     ]
 
     BTN_W, BTN_H = 360, 52
@@ -112,7 +113,7 @@ def _show_menu():
 def main():
     parser = argparse.ArgumentParser(description="RL Tycoon Game")
     parser.add_argument(
-        "--mode", choices=["human", "versus", "watch"], default=None,
+        "--mode", choices=["human", "versus", "watch", "tournament"], default=None,
         help="Game mode (default: interactive menu)")
     parser.add_argument(
         "--model", type=str, default=None,
@@ -164,6 +165,11 @@ def main():
                          target_money=args.target_money,
                          day_limit=args.day_limit,
                          speed_multiplier=args.speed)
+    elif args.mode == "tournament":
+        from modes.tournament_mode import TournamentMode
+        game = TournamentMode(target_money=args.target_money,
+                              day_limit=args.day_limit,
+                              speed_multiplier=args.speed)
     else:
         print(f"Unknown mode: {args.mode}", file=sys.stderr)
         sys.exit(1)

@@ -18,6 +18,11 @@ _ALGO_PATH_HINTS: dict[str, str] = {
     "model_based": "ModelBased",
     "modelbased": "ModelBased",
     "ppo": "PPO",
+    "discrete_sac": "DiscreteSAC",
+    "discretesac": "DiscreteSAC",
+    "dreamer": "Dreamer",
+    "cross_play": "CrossPlay",
+    "crossplay": "CrossPlay",
 }
 
 
@@ -28,11 +33,10 @@ def _detect_algo_from_path(model_path: str) -> str | None:
     .pt 확장자 → custom trainer, .zip 확장자 → SB3 (PPO/DQN).
     """
     path_lower = model_path.replace("\\", "/").lower()
-    # 경로 구성 요소에서 알고리즘 이름 탐지
-    parts = path_lower.replace("/", "_").replace("-", "_").split("_")
-    for part in parts:
-        if part in _ALGO_PATH_HINTS:
-            return _ALGO_PATH_HINTS[part]
+    # 복합 키워드(예: discrete_sac, cross_play)를 먼저 체크
+    for hint, algo in sorted(_ALGO_PATH_HINTS.items(), key=lambda x: -len(x[0])):
+        if hint in path_lower:
+            return algo
     # 확장자 기반 추론
     if model_path.endswith(".pt"):
         return None  # .pt지만 알고리즘 불명 → 디렉토리의 config 확인

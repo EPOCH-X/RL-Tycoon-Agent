@@ -58,6 +58,9 @@ ALGO_KR: dict[str, str] = {
     "SAC":        "소프트 액터-크리틱",
     "MARL":       "멀티에이전트 자기대결",
     "ModelBased": "모델기반 강화학습",
+    "DiscreteSAC": "이산 소프트 액터-크리틱 (분위수)",
+    "Dreamer":     "DreamerV3 세계모델 기반",
+    "CrossPlay":   "교차 알고리즘 대결 학습",
 }
 
 
