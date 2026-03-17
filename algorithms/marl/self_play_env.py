@@ -41,8 +41,9 @@ class SelfPlayEnv(gymnasium.Env):
         total_obs_len = base_obs_len if compat_mode else (base_obs_len + self._opponent_summary_dim)
 
         self.action_space = spaces.Discrete(NUM_ACTIONS)
+        obs_high = 1.0 if compat_mode else 2.0
         self.observation_space = spaces.Box(
-            low=-1.0, high=2.0, shape=(total_obs_len,), dtype=np.float32)
+            low=-1.0, high=obs_high, shape=(total_obs_len,), dtype=np.float32)
 
         self._opponent_agent = opponent_agent
         self._opponent_pool = opponent_pool or []

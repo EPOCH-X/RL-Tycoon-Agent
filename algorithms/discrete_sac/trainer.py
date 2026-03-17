@@ -254,7 +254,7 @@ class DiscreteSACTrainer(BaseTrainer):
 
             # Eval
             if step % eval_freq == 0:
-                eval_r, eval_score = self._evaluate(eval_env, n_episodes=5)
+                eval_r, eval_score = self._evaluate(eval_env, n_episodes=10)
                 print(f"  [DiscreteSAC] 평가 스텝 {step}: mean_reward={eval_r:.1f}, mean_final_score={eval_score:.1f}")
                 writer.add_scalar("eval/mean_reward", eval_r, step)
                 writer.add_scalar("eval/mean_final_score", eval_score, step)
