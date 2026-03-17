@@ -1,7 +1,6 @@
 {
-  "_comment": "SAC (Soft Actor-Critic) Discrete 전용 설정. sb3-contrib의 DiscreteSAC 사용 또는 SB3 SAC+wrapper.",
-  "algorithm": "SAC",
-  "policy": "MlpPolicy",
+  "_comment": "Discrete SAC v2 – 분포적 Q-학습(Quantile) + 적응형 α + 3중 Q-네트워크.",
+  "algorithm": "DiscreteSAC",
   "training": {
     "total_timesteps": 1000000,
     "n_envs": 4,
@@ -16,10 +15,12 @@
     "gamma": 0.99,
     "tau": 0.005,
     "train_freq": 1,
-    "gradient_steps": 4,
+    "gradient_steps": 2,
     "max_grad_norm": 1.0,
-    "ent_coef": "auto",
-    "target_entropy": "auto"
+    "n_quantiles": 25,
+    "n_critics": 3,
+    "top_quantiles_to_drop": 2,
+    "target_entropy_ratio": 0.45
   },
   "network": {
     "net_arch": [256, 256],
