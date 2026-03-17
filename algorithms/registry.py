@@ -14,6 +14,9 @@ ALGORITHM_REGISTRY: dict[str, str] = {
     "SAC":         "algorithms.sac.trainer.SACTrainer",
     "MARL":        "algorithms.marl.trainer.MARLTrainer",
     "ModelBased":  "algorithms.model_based.trainer.ModelBasedTrainer",
+    "DiscreteSAC": "algorithms.discrete_sac.trainer.DiscreteSACTrainer",
+    "Dreamer":     "algorithms.dreamer.trainer.DreamerTrainer",
+    "CrossPlay":   "algorithms.cross_play.trainer.CrossPlayTrainer",
 }
 
 
