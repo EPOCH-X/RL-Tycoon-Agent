@@ -22,9 +22,16 @@ from core.ranking import RankingManager
 from rendering.asset_manager import AssetManager
 from rendering.renderer import Renderer
 from ai.agent import load_agent
-from ai.gym_env import build_observation
+from ai.gym_env import build_observation, _get_primary_target_signature
+from core.customer import CustomerState
 
 ACTION_NAMES = ["↑위", "↓아래", "←좌", "→우", "★상호작용", "·대기", "₩업그레이드"]
+
+# 디버그: True면 전반 분석용 로그를 watch_debug.log에 기록
+WATCH_DEBUG_IDLE_AT_TABLE = True
+WATCH_DEBUG_LOG_FILE = "watch_debug.log"  # 프로젝트 루트
+# 주기적 요약(스텝 간격), 0이면 주기 로그 없음
+WATCH_DEBUG_SUMMARY_EVERY_N_STEPS = 50
 
 
 class WatchMode(BaseMode):
@@ -65,6 +72,19 @@ class WatchMode(BaseMode):
         self._step_count: int = 0
         self._action_counts = [0] * 7
 
+        self._debug_log_path = None
+        if WATCH_DEBUG_IDLE_AT_TABLE and WATCH_DEBUG_LOG_FILE:
+            self._debug_log_path = os.path.join(
+                os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                WATCH_DEBUG_LOG_FILE,
+            )
+            try:
+                import datetime
+                with open(self._debug_log_path, "a", encoding="utf-8") as f:
+                    f.write(f"=== watch 디버그 세션 시작 {datetime.datetime.now().isoformat()} ===\n")
+            except Exception:
+                pass
+
     # ── events ───────────────────────────────────
     def handle_events(self):
         for event in pygame.event.get():
@@ -104,11 +124,45 @@ class WatchMode(BaseMode):
             if self.shop.done:
                 break
             obs = build_observation(self.shop)
+            target_sig = _get_primary_target_signature(self.shop)
             action = self.agent.predict(obs)
             self._last_action = action
             self._step_count += 1
             if 0 <= action < 7:
                 self._action_counts[action] += 1
+
+            # 전반 분석용 디버그 로그 (파일에만 기록)
+            if WATCH_DEBUG_IDLE_AT_TABLE and self._debug_log_path:
+                waiting_tids = [
+                    t.table_id for t in self.shop.tables
+                    if t.customer is not None
+                    and t.customer.state == CustomerState.WAITING_TO_ORDER
+                ]
+                carry = "order" if self.shop.player.has_order else (
+                    "food" if self.shop.player.has_food else (
+                        "drink" if self.shop.player.has_drink else "idle"
+                    )
+                )
+                target_str = f"{target_sig[0]}{target_sig[1]}" if target_sig else "None"
+                act_name = ACTION_NAMES[action] if 0 <= action < 7 else f"act{action}"
+                px, py = self.shop.player.center_x, self.shop.player.center_y
+                line = (
+                    f"step={self._step_count} | target={target_str} | action={action}({act_name}) | "
+                    f"carry={carry} | waiting_tables={waiting_tids} | pos=({px:.0f},{py:.0f})\n"
+                )
+                do_log = False
+                if waiting_tids:
+                    do_log = True
+                if action == ACTION_NONE:
+                    do_log = True
+                if WATCH_DEBUG_SUMMARY_EVERY_N_STEPS and self._step_count % WATCH_DEBUG_SUMMARY_EVERY_N_STEPS == 0:
+                    do_log = True
+                if do_log:
+                    try:
+                        with open(self._debug_log_path, "a", encoding="utf-8") as f:
+                            f.write(line)
+                    except Exception:
+                        pass
 
             # Get action probabilities for debug display
             if hasattr(self.agent, 'get_action_probs'):

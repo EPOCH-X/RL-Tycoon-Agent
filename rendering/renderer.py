@@ -196,10 +196,19 @@ class Renderer:
                 done = self.font_sm.render("완성", True, (255, 200, 80))
                 surface.blit(done, (rect.x + 2, rect.y + 2))
 
-                # Food name (Korean)
-                name = data["menu_item"]["name"]
-                nm = self.font_sm.render(name[:4], True, (255, 255, 100))
-                surface.blit(nm, nm.get_rect(center=rect.center))
+                # 메뉴 ID (menu.json 의 "id": coffee, sandwich, ...)
+                menu_id = data["menu_item"].get("id", "")
+
+                # food 스프라이트가 있으면 아이콘을, 없으면 기존 텍스트 표시
+                if menu_id and self.am.has_sprite("food", menu_id):
+                    frame = self.am.get_frame("food", menu_id, 0)
+                    surface.blit(frame, frame.get_rect(center=rect.center))
+                else:
+                    # Food name (Korean)
+                    name = data["menu_item"]["name"]
+                    nm = self.font_sm.render(name[:4], True, (255, 255, 100))
+                    surface.blit(nm, nm.get_rect(center=rect.center))
+                
 
                 # Table ID
                 tid = self.font_sm.render(
