@@ -173,7 +173,7 @@ class DiscreteSACTrainer(BaseTrainer):
         self._reward_cfg = reward_cfg
         self._seed = seed
 
-    def train(self) -> dict[str, Any]:
+    def train(self, resume_path: str | None = None) -> dict[str, Any]:
         assert self.policy is not None, "call build() first"
         hp = self._hp
         gamma = hp.get("gamma", 0.99)
@@ -187,6 +187,36 @@ class DiscreteSACTrainer(BaseTrainer):
         n_envs = self.cfg.get("training", {}).get("n_envs", 1)
 
         replay = NumpyReplayBuffer(self._obs_dim, buffer_size)
+        start_step = 1
+        episode_rewards = []
+        best_eval = float("-inf")
+
+        # 시그널 핸들러에서 접근 가능하도록 인스턴스에 저장
+        self._train_state = {
+            "step": 0, "replay": replay,
+            "episode_rewards": episode_rewards, "best_eval": best_eval,
+        }
+
+        # ── 체크포인트에서 복원 ──
+        if resume_path:
+            ckpt_data = self.load_checkpoint(resume_path)
+            start_step = ckpt_data["step"] + 1
+            best_eval = ckpt_data["best_eval"]
+            episode_rewards = ckpt_data["episode_rewards"]
+            rp = ckpt_data.get("replay")
+            if rp is not None:
+                n = rp["size"]
+                replay.obs[:n] = rp["obs"]
+                replay.actions[:n] = rp["actions"]
+                replay.rewards[:n] = rp["rewards"]
+                replay.next_obs[:n] = rp["next_obs"]
+                replay.dones[:n] = rp["dones"]
+                replay.pos = rp["pos"]
+                replay.size = n
+            print(f"  [DiscreteSAC] 체크포인트 복원: step={start_step-1}, "
+                  f"buffer={len(replay)}, episodes={len(episode_rewards)}, "
+                  f"best_eval={best_eval:.1f}")
+
         envs = [make_env(i, self._seed + i, self._game_ov, self._reward_cfg)()
                 for i in range(n_envs)]
         eval_env = make_env(0, self._seed + 1000, self._game_ov, self._reward_cfg)()
@@ -197,14 +227,13 @@ class DiscreteSACTrainer(BaseTrainer):
         for env in envs:
             o, _ = env.reset()
             obs_all.append(o)
-        episode_rewards = []
-        best_eval = float("-inf")
 
         writer = SummaryWriter(os.path.join(self.save_path, "tb_logs"))
         eval_timesteps, eval_results = [], []
         loss_acc = {"q_loss": [], "policy_loss": [], "alpha": [], "entropy": []}
 
-        for step in range(1, self._timesteps + 1):
+        for step in range(start_step, self._timesteps + 1):
+            self._train_state["step"] = step
             env_idx = (step - 1) % n_envs
             env = envs[env_idx]
 
@@ -262,12 +291,18 @@ class DiscreteSACTrainer(BaseTrainer):
                 eval_results.append(eval_r)
                 if eval_r > best_eval:
                     best_eval = eval_r
+                    self._train_state["best_eval"] = best_eval
                     self.save(os.path.join(self.save_path, "best_model"))
                 if not early_stop.check(eval_r):
                     print(f"  [DiscreteSAC] 조기 종료, 스텝: {step}")
                     break
 
         self.save(os.path.join(self.save_path, "final_model"))
+        self.save_checkpoint(
+            os.path.join(self.save_path, "checkpoint"),
+            step=step, replay=replay,
+            episode_rewards=episode_rewards, best_eval=best_eval,
+        )
         eval_log_dir = os.path.join(self.save_path, "eval_logs")
         os.makedirs(eval_log_dir, exist_ok=True)
         np.savez(os.path.join(eval_log_dir, "evaluations.npz"),
@@ -397,8 +432,58 @@ class DiscreteSACTrainer(BaseTrainer):
             data[f"q_target_{i}"] = qt.state_dict()
         torch.save(data, path + ".pt")
 
+    def save_checkpoint(self, path: str, step: int,
+                        replay: 'NumpyReplayBuffer | None' = None,
+                        episode_rewards: list | None = None,
+                        best_eval: float = float("-inf")) -> None:
+        """학습 재개에 필요한 모든 상태를 저장합니다."""
+        data = {
+            "policy": self.policy.state_dict(),
+            "log_alpha": self._log_alpha.data,
+            "policy_opt": self._policy_opt.state_dict(),
+            "q_opt": self._q_opt.state_dict(),
+            "alpha_opt": self._alpha_opt.state_dict(),
+            "step": step,
+            "best_eval": best_eval,
+            "episode_rewards": episode_rewards or [],
+        }
+        for i, (qn, qt) in enumerate(zip(self.q_nets, self.q_targets)):
+            data[f"q_net_{i}"] = qn.state_dict()
+            data[f"q_target_{i}"] = qt.state_dict()
+        if replay is not None:
+            data["replay"] = {
+                "pos": replay.pos,
+                "size": replay.size,
+                "obs": replay.obs[:replay.size],
+                "actions": replay.actions[:replay.size],
+                "rewards": replay.rewards[:replay.size],
+                "next_obs": replay.next_obs[:replay.size],
+                "dones": replay.dones[:replay.size],
+            }
+        torch.save(data, path + ".pt")
+        print(f"  [DiscreteSAC] 체크포인트 저장: step={step}, path={path}")
+
+    def load_checkpoint(self, path: str) -> dict:
+        """체크포인트에서 전체 학습 상태를 복원합니다. build() 후에 호출하세요."""
+        ckpt = torch.load(path + ".pt", map_location=self.device, weights_only=False)
+        self.policy.load_state_dict(ckpt["policy"])
+        for i, (qn, qt) in enumerate(zip(self.q_nets, self.q_targets)):
+            qn.load_state_dict(ckpt[f"q_net_{i}"])
+            qt.load_state_dict(ckpt[f"q_target_{i}"])
+        self._log_alpha.data = ckpt["log_alpha"]
+        if "policy_opt" in ckpt:
+            self._policy_opt.load_state_dict(ckpt["policy_opt"])
+            self._q_opt.load_state_dict(ckpt["q_opt"])
+            self._alpha_opt.load_state_dict(ckpt["alpha_opt"])
+        return {
+            "step": ckpt.get("step", 0),
+            "best_eval": ckpt.get("best_eval", float("-inf")),
+            "episode_rewards": ckpt.get("episode_rewards", []),
+            "replay": ckpt.get("replay"),
+        }
+
     def load(self, path: str) -> None:
-        ckpt = torch.load(path + ".pt", map_location=self.device)
+        ckpt = torch.load(path + ".pt", map_location=self.device, weights_only=False)
         if self.policy:
             self.policy.load_state_dict(ckpt["policy"])
         for i, (qn, qt) in enumerate(zip(self.q_nets, self.q_targets)):

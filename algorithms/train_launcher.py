@@ -21,6 +21,7 @@ import argparse
 import json
 import os
 import re
+import signal
 import time
 from typing import Any
 
@@ -50,6 +51,44 @@ def _next_version_path(base_path: str) -> str:
     return f"{stem}_v{ver}"
 
 
+def _find_latest_version(base_path: str) -> str | None:
+    """가장 최근 버전의 모델 폴더를 찾습니다.
+
+    models/ppo, models/ppo_v2, ... 중 가장 높은 버전 또는
+    --save-path 로 직접 지정된 폴더를 반환합니다.
+    """
+    m = re.match(r'^(.+)_v(\d+)$', base_path)
+    if m:
+        stem = m.group(1)
+    else:
+        stem = base_path
+
+    # 가장 높은 _vN 폴더 탐색
+    best_path = None
+    best_ver = 0
+    parent = os.path.dirname(stem) or "."
+    prefix = os.path.basename(stem)
+
+    if os.path.isdir(parent):
+        for entry in os.listdir(parent):
+            full = os.path.join(parent, entry)
+            if not os.path.isdir(full):
+                continue
+            if entry == prefix:
+                if best_ver < 1:
+                    best_ver = 1
+                    best_path = full
+            else:
+                vm = re.match(rf'^{re.escape(prefix)}_v(\d+)$', entry)
+                if vm:
+                    ver = int(vm.group(1))
+                    if ver > best_ver:
+                        best_ver = ver
+                        best_path = full
+
+    return best_path
+
+
 # 알고리즘 한글 이름 매핑
 ALGO_KR: dict[str, str] = {
     "PPO":        "근위 정책 최적화",
@@ -64,15 +103,80 @@ ALGO_KR: dict[str, str] = {
 }
 
 
+def _find_checkpoint(save_path: str, algo_name: str) -> str | None:
+    """저장 경로에서 체크포인트 파일을 탐색합니다."""
+    # 커스텀 트레이너 (DiscreteSAC 등): checkpoint.pt
+    pt_path = os.path.join(save_path, "checkpoint.pt")
+    if os.path.isfile(pt_path):
+        return os.path.join(save_path, "checkpoint")
+
+    # SB3 (PPO, DQN): best_model.zip 또는 final_model.zip
+    for name in ("best_model.zip", "final_model.zip"):
+        zip_path = os.path.join(save_path, name)
+        if os.path.isfile(zip_path):
+            return zip_path[:-4]  # SB3 load에 .zip 제거
+
+    return None
+
+
+# ── Ctrl+C 시그널 핸들러 ──
+_active_trainer = None
+_active_save_path = None
+
+
+def _sigint_handler(signum, frame):
+    """Ctrl+C 시 체크포인트를 저장한 후 종료합니다."""
+    global _active_trainer, _active_save_path
+    print("\n\n  [!] Ctrl+C 감지 – 체크포인트 저장 중...")
+    if _active_trainer and _active_save_path:
+        try:
+            ckpt_path = os.path.join(_active_save_path, "checkpoint")
+            ts = getattr(_active_trainer, '_train_state', None)
+            if hasattr(_active_trainer, 'save_checkpoint') and ts:
+                # DiscreteSAC 등 커스텀 트레이너: 전체 상태 저장
+                _active_trainer.save_checkpoint(
+                    ckpt_path,
+                    step=ts.get("step", 0),
+                    replay=ts.get("replay"),
+                    episode_rewards=ts.get("episode_rewards", []),
+                    best_eval=ts.get("best_eval", float("-inf")),
+                )
+            elif hasattr(_active_trainer, 'model') and _active_trainer.model:
+                # SB3 트레이너 (PPO, DQN)
+                _active_trainer.model.save(ckpt_path)
+                print(f"  [✓] 체크포인트 저장 완료: {ckpt_path}")
+            else:
+                _active_trainer.save(ckpt_path)
+                print(f"  [✓] 모델 저장 완료: {ckpt_path}")
+        except Exception as e:
+            print(f"  [✗] 체크포인트 저장 실패: {e}")
+    raise KeyboardInterrupt
+
+
 def train_single(algo_name: str, args) -> dict[str, Any]:
     """단일 알고리즘을 학습합니다."""
+    global _active_trainer, _active_save_path
+
     TrainerClass = get_algorithm(algo_name)
     trainer = TrainerClass()
 
+    resume = getattr(args, 'resume', False)
     days = getattr(args, 'days', None)
     day_suffix = f"_{days}d" if days and days != 30 else ""
-    base_path = args.save_path or f"models/{algo_name.lower()}{day_suffix}"
-    save_path = _next_version_path(base_path)
+
+    if resume:
+        # --resume: 기존 폴더에서 이어서 학습
+        base_path = args.save_path or f"models/{algo_name.lower()}{day_suffix}"
+        save_path = _find_latest_version(base_path)
+        if not save_path:
+            print(f"  [!] 복원할 모델 폴더를 찾을 수 없습니다: {base_path}")
+            print(f"  → 새로 학습을 시작합니다.")
+            save_path = base_path
+            resume = False
+    else:
+        base_path = args.save_path or f"models/{algo_name.lower()}{day_suffix}"
+        save_path = _next_version_path(base_path)
+
     kr = ALGO_KR.get(algo_name, algo_name)
 
     overrides = {}
@@ -91,10 +195,20 @@ def train_single(algo_name: str, args) -> dict[str, Any]:
     else:
         config_src = args.config or f"algorithms/{algo_name.lower()}/config.json"
 
+    # 체크포인트 탐색
+    resume_path = None
+    if resume:
+        resume_path = _find_checkpoint(save_path, algo_name)
+        if not resume_path:
+            print(f"  [!] 체크포인트를 찾을 수 없습니다: {save_path}")
+            print(f"  → 처음부터 학습합니다.")
+
     print(f"\n{'='*60}")
-    print(f"  학습 시작 (Training): {algo_name} ({kr})")
+    print(f"  {'이어서 학습 (Resume)' if resume_path else '학습 시작 (Training)'}: {algo_name} ({kr})")
     print(f"  설정 파일 (Config): {config_src}")
     print(f"  저장 경로 (Save path): {save_path}")
+    if resume_path:
+        print(f"  체크포인트 (Checkpoint): {resume_path}")
     if overrides:
         print(f"  오버라이드 (Overrides): {overrides}")
     print(f"{'='*60}\n")
@@ -102,7 +216,23 @@ def train_single(algo_name: str, args) -> dict[str, Any]:
     start = time.time()
     trainer.build(config_path=args.config, save_path=save_path, days=days,
                   **overrides)
-    result = trainer.train()
+
+    # Ctrl+C 핸들러 등록
+    _active_trainer = trainer
+    _active_save_path = save_path
+    prev_handler = signal.signal(signal.SIGINT, _sigint_handler)
+
+    try:
+        result = trainer.train(resume_path=resume_path)
+    except KeyboardInterrupt:
+        print(f"\n  [!] 학습이 중단되었습니다.")
+        result = {"algorithm": algo_name, "interrupted": True,
+                  "save_path": save_path}
+    finally:
+        signal.signal(signal.SIGINT, prev_handler)
+        _active_trainer = None
+        _active_save_path = None
+
     elapsed = time.time() - start
     result["wall_time_sec"] = round(elapsed, 1)
 
@@ -230,6 +360,8 @@ def main():
                    help="모든 알고리즘 벤치마크 실행")
     p.add_argument("--evaluate", action="store_true",
                    help="학습된 모델 평가 모드")
+    p.add_argument("--resume", action="store_true",
+                   help="가장 최근 체크포인트에서 이어서 학습")
     p.add_argument("--model", type=str, default=None,
                    help="기존 모델 경로 (CrossPlay: 학습할 모델 선택, --evaluate: 평가할 모델)")
     p.add_argument("--eval-episodes", type=int, default=20,

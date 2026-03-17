@@ -200,7 +200,7 @@ class A3CTrainer(BaseTrainer):
             # CPU 모드: 공유 메모리로 설정 (멀티프로세스용)
             self.global_model.share_memory()
 
-    def train(self) -> dict[str, Any]:
+    def train(self, resume_path: str | None = None) -> dict[str, Any]:
         assert self.global_model is not None, "call build() first"
 
         if self.device.type == "cuda":

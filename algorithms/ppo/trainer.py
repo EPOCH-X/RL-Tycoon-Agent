@@ -99,8 +99,17 @@ class PPOTrainer(BaseTrainer):
         )
 
     # ── train ────────────────────────────────────
-    def train(self) -> dict[str, Any]:
+    def train(self, resume_path: str | None = None) -> dict[str, Any]:
         assert self.model is not None, "call build() first"
+
+        if resume_path:
+            device = get_sb3_device(self.cfg.get("policy", "MlpPolicy"))
+            self.model = PPO.load(
+                resume_path, env=self.train_env, device=device,
+                tensorboard_log=os.path.join(self.save_path, "tb_logs"),
+            )
+            print(f"  [PPO] 체크포인트 복원: {resume_path}")
+
         print_metric_reference()
         diag_cb = TrainingDiagnosticsCallback(
             print_every_episodes=64,

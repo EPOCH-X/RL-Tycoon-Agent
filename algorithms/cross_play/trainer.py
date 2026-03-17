@@ -437,13 +437,22 @@ class CrossPlayTrainer(BaseTrainer):
         for env in self._eval_env.envs:
             env.set_opponent(new_opp)
 
-    def train(self) -> dict[str, Any]:
+    def train(self, resume_path: str | None = None) -> dict[str, Any]:
         if self._is_custom:
-            return self._train_custom()
-        return self._train_sb3()
+            return self._train_custom(resume_path=resume_path)
+        return self._train_sb3(resume_path=resume_path)
 
-    def _train_sb3(self) -> dict[str, Any]:
+    def _train_sb3(self, resume_path: str | None = None) -> dict[str, Any]:
         assert self.model is not None, "call build() first"
+
+        if resume_path:
+            SB3Class = _SB3_ALGO_MAP.get(self._learner_algo, PPO)
+            device = get_sb3_device()
+            self.model = SB3Class.load(
+                resume_path, env=self._vec_env, device=device,
+                tensorboard_log=os.path.join(self.save_path, "tb_logs"),
+            )
+            print(f"  [CrossPlay] SB3 체크포인트 복원: {resume_path}")
 
         steps_done = 0
         swap_interval = self._swap_freq
@@ -473,13 +482,13 @@ class CrossPlayTrainer(BaseTrainer):
                 "opponents": len(self._opponent_pool),
                 "save_path": self.save_path}
 
-    def _train_custom(self) -> dict[str, Any]:
+    def _train_custom(self, resume_path: str | None = None) -> dict[str, Any]:
         assert self._custom_trainer is not None, "call build() first"
 
         print(f"\n  [CrossPlay] 커스텀 학습 시작: {self._learner_algo}")
         print(f"  [CrossPlay] 상대 풀이 환경에 자동 주입됩니다 (매 에피소드 랜덤 교체)")
         try:
-            result = self._custom_trainer.train()
+            result = self._custom_trainer.train(resume_path=resume_path)
         finally:
             clear_env_override()
 
