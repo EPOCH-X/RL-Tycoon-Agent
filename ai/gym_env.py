@@ -1,5 +1,7 @@
 """Gymnasium environment wrapper for the restaurant management sim."""
 
+import json
+import os
 import numpy as np
 import gymnasium
 from gymnasium import spaces
@@ -208,11 +210,16 @@ def build_observation(shop: Shop) -> np.ndarray:
 class TycoonEnv(gymnasium.Env):
     metadata = {"render_modes": ["human", "rgb_array"], "render_fps": 10}
 
-    def __init__(self, render_mode=None, reward_config=None, **shop_kwargs):
+    def __init__(self, render_mode=None, reward_config=None,
+                 analysis_log_dir: str | None = None,
+                 env_rank: int = 0,
+                 **shop_kwargs):
         super().__init__()
         self.shop = Shop(**shop_kwargs)
         self.render_mode = render_mode
         self._reward_calc = RewardCalculator(reward_config)
+        self.analysis_log_dir = analysis_log_dir
+        self.env_rank = env_rank
 
         self.action_space = spaces.Discrete(NUM_ACTIONS)
         obs_len = _obs_size(self.shop)
@@ -221,6 +228,15 @@ class TycoonEnv(gymnasium.Env):
 
         self._screen = None
         self._renderer = None
+
+    def _write_episode_analysis(self, summary: dict):
+        if not self.analysis_log_dir:
+            return
+        os.makedirs(self.analysis_log_dir, exist_ok=True)
+        out_path = os.path.join(
+            self.analysis_log_dir, f"episode_analysis_env{self.env_rank}.jsonl")
+        with open(out_path, "a", encoding="utf-8") as f:
+            f.write(json.dumps(summary, ensure_ascii=False) + "\n")
 
     def reset(self, *, seed=None, options=None):
         super().reset(seed=seed)
@@ -244,6 +260,10 @@ class TycoonEnv(gymnasium.Env):
             "won": self.shop.won,
             "tables_active": len(self.shop.tables),
         }
+        if terminated:
+            summary = self.shop.get_game_result()
+            info["episode_summary"] = summary
+            self._write_episode_analysis(summary)
         return obs, reward, terminated, truncated, info
 
     def action_masks(self):

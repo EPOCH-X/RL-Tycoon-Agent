@@ -13,6 +13,7 @@ Systems:
 """
 
 import heapq
+import copy
 import math
 import random
 from collections import deque
@@ -226,6 +227,9 @@ class Shop:
         # ── stats ────────────────────────────────
         self.customers_served: int = 0
         self.customers_lost: int = 0
+        self.upgrade_purchase_log: list[dict] = []
+        self.trait_offer_log: list[dict] = []
+        self.trait_pick_log: list[dict] = []
 
     # ═══════════════════════════════════════════════
     #  Derived properties
@@ -473,6 +477,9 @@ class Shop:
         self.message_timer = 0.0
         self.customers_served = 0
         self.customers_lost = 0
+        self.upgrade_purchase_log = []
+        self.trait_offer_log = []
+        self.trait_pick_log = []
         self.satisfaction_history.clear()
         self.shop_rating = 0.12
         for _ in range(20):
@@ -548,17 +555,26 @@ class Shop:
             return []
 
         dt = STEP_INTERVAL
+        events: list[tuple[str, float]] = [("time_penalty", 1.0)]
 
         if action in (ACTION_UP, ACTION_DOWN, ACTION_LEFT, ACTION_RIGHT):
+            prev_x, prev_y = self.player.x, self.player.y
             self._move_player_action(action, dt)
+            moved = (
+                abs(self.player.x - prev_x) > 1e-6
+                or abs(self.player.y - prev_y) > 1e-6
+            )
+            if not moved:
+                events.append(("blocked_move", 1.0))
             # ── 이동 후 자동 상호작용 (사람 모드 동시입력 보정) ──
             # 이동 방향에 상호작용 가능한 대상이 있으면 자동 시도
             auto_events = self._try_auto_interact()
             if auto_events:
                 # 이미 상호작용 완료 → ACTION_NONE으로 나머지 로직만 실행
-                return self._step_inner(ACTION_NONE, dt, extra_events=auto_events)
+                events.extend(auto_events)
+                return self._step_inner(ACTION_NONE, dt, extra_events=events)
 
-        return self._step_inner(action, dt)
+        return self._step_inner(action, dt, extra_events=events)
 
     # ═══════════════════════════════════════════════
     #  Step Logic — for human mode (movement handled elsewhere)
@@ -573,6 +589,15 @@ class Shop:
                     extra_events: list[tuple[str, float]] | None = None,
                     ) -> list[tuple[str, float]]:
         events: list[tuple[str, float]] = list(extra_events) if extra_events else []
+
+        if action == ACTION_NONE:
+            urgent_idle = (
+                self.has_urgent_work()
+                or len(self.waiting_queue) > 0
+                or self.can_interact_now()
+            )
+            if urgent_idle:
+                events.append(("idle_penalty", 1.0))
 
         # 1) Interaction / upgrade
         if action == ACTION_INTERACT:
@@ -1510,6 +1535,21 @@ class Shop:
         self.total_spent += cost
         self.upgrade_levels[upgrade_id] = level + 1
         self._apply_upgrade(upg)
+        self.upgrade_purchase_log.append({
+            "day": self.current_day,
+            "time_elapsed": round(self.time_elapsed, 2),
+            "money_before": self.money + cost,
+            "money_after": self.money,
+            "net_profit": self.net_profit,
+            "queue_len": len(self.waiting_queue),
+            "customers_served": self.customers_served,
+            "customers_lost": self.customers_lost,
+            "shop_rating": round(self.shop_rating, 4),
+            "upgrade_id": upgrade_id,
+            "upgrade_name": upg["name"],
+            "new_level": level + 1,
+            "cost": cost,
+        })
         self._msg(f"{upg['name']} Lv.{level + 1}!")
         return True
 
@@ -1966,6 +2006,26 @@ class Shop:
         n = min(self.traits_config.get("choices_per_offer", 3), len(available))
         self.trait_choices = random.sample(available, n)
         self.trait_selection_active = True
+        self.trait_offer_log.append({
+            "day": self.current_day,
+            "time_elapsed": round(self.time_elapsed, 2),
+            "money": self.money,
+            "net_profit": self.net_profit,
+            "queue_len": len(self.waiting_queue),
+            "customers_served": self.customers_served,
+            "customers_lost": self.customers_lost,
+            "shop_rating": round(self.shop_rating, 4),
+            "choices": [
+                {
+                    "id": trait["id"],
+                    "name": trait["name"],
+                    "effect": trait.get("effect", ""),
+                    "value": trait.get("value", 0),
+                    "score": round(self._score_trait_choice(trait), 3),
+                }
+                for trait in self.trait_choices
+            ],
+        })
 
     def select_trait(self, choice_idx: int) -> bool:
         if not self.trait_selection_active:
@@ -1973,9 +2033,34 @@ class Shop:
         if choice_idx < 0 or choice_idx >= len(self.trait_choices):
             return False
         trait = self.trait_choices[choice_idx]
+        offered_choices = copy.deepcopy(self.trait_choices)
         tid = trait["id"]
         self.traits[tid] = self.traits.get(tid, 0) + 1
         self._apply_trait(trait)
+        self.trait_pick_log.append({
+            "day": self.current_day,
+            "time_elapsed": round(self.time_elapsed, 2),
+            "money": self.money,
+            "net_profit": self.net_profit,
+            "queue_len": len(self.waiting_queue),
+            "customers_served": self.customers_served,
+            "customers_lost": self.customers_lost,
+            "shop_rating": round(self.shop_rating, 4),
+            "choice_index": choice_idx,
+            "picked_trait_id": trait["id"],
+            "picked_trait_name": trait["name"],
+            "picked_effect": trait.get("effect", ""),
+            "offered_choices": [
+                {
+                    "id": offered["id"],
+                    "name": offered["name"],
+                    "effect": offered.get("effect", ""),
+                    "value": offered.get("value", 0),
+                    "score": round(self._score_trait_choice(offered), 3),
+                }
+                for offered in offered_choices
+            ],
+        })
         self.trait_selection_active = False
         self.trait_choices = []
         interval = self.traits_config.get("offer_interval_days", 5)
@@ -2089,4 +2174,9 @@ class Shop:
             "shop_rating_stars": self.shop_rating_stars,
             "final_score": round(self.final_score, 1),
             "won": self.won,
+            "upgrade_levels": dict(self.upgrade_levels),
+            "traits": dict(self.traits),
+            "upgrade_purchase_log": copy.deepcopy(self.upgrade_purchase_log),
+            "trait_offer_log": copy.deepcopy(self.trait_offer_log),
+            "trait_pick_log": copy.deepcopy(self.trait_pick_log),
         }

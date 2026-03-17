@@ -23,11 +23,15 @@ class AssetManager:
 
     # ── public API ───────────────────────────────
     def has_sprite(self, sprite_key: str, state: str = "idle") -> bool:
+        sprite_key = sprite_key.lower()
+        state = state.lower()
         return (sprite_key in self.sprites
                 and state in self.sprites[sprite_key])
 
     def get_frame(self, sprite_key: str, state: str,
                   frame_index: int) -> pygame.Surface:
+        sprite_key = sprite_key.lower()
+        state = state.lower()
         frames = self.sprites[sprite_key][state]
         return frames[frame_index % len(frames)]
 
@@ -42,15 +46,16 @@ class AssetManager:
             if not os.path.isdir(entity_path):
                 continue
 
-            self.sprites[entity_name] = {}
+            entity_key = entity_name.lower()
+            self.sprites[entity_key] = {}
             for fname in os.listdir(entity_path):
                 if not fname.lower().endswith(".png"):
                     continue
-                state_name = os.path.splitext(fname)[0]
+                state_name = os.path.splitext(fname)[0].lower()
                 full = os.path.join(entity_path, fname)
                 sheet = pygame.image.load(full).convert_alpha()
                 frames = self._split_sheet(sheet)
-                self.sprites[entity_name][state_name] = frames
+                self.sprites[entity_key][state_name] = frames
 
     @staticmethod
     def _split_sheet(sheet: pygame.Surface) -> list[pygame.Surface]:

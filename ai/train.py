@@ -88,6 +88,7 @@ def _make_env(
     game_overrides: dict | None = None,
     reward_config: dict | None = None,
     env_options: dict | None = None,
+    analysis_log_dir: str | None = None,
 ):
     def _init():
         kwargs = {}
@@ -98,7 +99,12 @@ def _make_env(
                 kwargs["day_limit"] = game_overrides["day_limit"]
         if env_options:
             kwargs.update({key: value for key, value in env_options.items() if not key.startswith("_")})
-        env = TycoonEnv(reward_config=reward_config, **kwargs)
+        env = TycoonEnv(
+            reward_config=reward_config,
+            analysis_log_dir=analysis_log_dir,
+            env_rank=rank,
+            **kwargs,
+        )
         env.reset(seed=seed + rank)
         return env
 
@@ -122,16 +128,17 @@ def train(args):
     save_path = args.save_path + day_suffix if day_suffix else args.save_path
 
     os.makedirs(save_path, exist_ok=True)
+    analysis_log_dir = os.path.join(save_path, "analysis_logs")
     with open(os.path.join(save_path, "train_config_used.json"), "w", encoding="utf-8") as f:
         json.dump(cfg, f, indent=2, ensure_ascii=False)
 
     if n_envs > 1:
         train_env = SubprocVecEnv(
-            [_make_env(i, seed, game_ov, reward_cfg, env_options) for i in range(n_envs)])
+            [_make_env(i, seed, game_ov, reward_cfg, env_options, analysis_log_dir) for i in range(n_envs)])
     else:
-        train_env = DummyVecEnv([_make_env(0, seed, game_ov, reward_cfg, env_options)])
+        train_env = DummyVecEnv([_make_env(0, seed, game_ov, reward_cfg, env_options, analysis_log_dir)])
 
-    eval_env = DummyVecEnv([_make_env(0, seed + 1000, game_ov, reward_cfg, env_options)])
+    eval_env = DummyVecEnv([_make_env(0, seed + 1000, game_ov, reward_cfg, env_options, analysis_log_dir)])
 
     policy_kwargs = {}
     if net_cfg.get("net_arch"):

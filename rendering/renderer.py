@@ -65,6 +65,19 @@ class Renderer:
         self._draw_upgrade_panel(surface, shop, offset_x, offset_y)
         self._draw_trait_popup(surface, shop, offset_x, offset_y)
 
+    def _draw_food_icon(self, surface: pygame.Surface, menu_item: dict | None,
+                        x: int, y: int, size: int = 28) -> bool:
+        if not menu_item:
+            return False
+        food_id = menu_item.get("id", "").lower()
+        if not food_id or not self.am.has_sprite("food", food_id):
+            return False
+        frame = self.am.get_frame("food", food_id, 0)
+        if frame.get_size() != (size, size):
+            frame = pygame.transform.smoothscale(frame, (size, size))
+        surface.blit(frame, (x, y))
+        return True
+
     # ═══════════════════════════════════════════════
     #  Map tiles
     # ═══════════════════════════════════════════════
@@ -164,6 +177,9 @@ class Renderer:
                     surface, (180, 140, 60),
                     (rect.x + 12, rect.y + 12), 7, 1)
 
+                self._draw_food_icon(
+                    surface, data["menu_item"], rect.x + 18, rect.y + 18, 28)
+
                 # Food name (Korean)
                 name = data["menu_item"]["name"]
                 nm = self.font_sm.render(name[:4], True, (255, 255, 255))
@@ -196,10 +212,14 @@ class Renderer:
                 done = self.font_sm.render("완성", True, (255, 200, 80))
                 surface.blit(done, (rect.x + 2, rect.y + 2))
 
+                self._draw_food_icon(
+                    surface, data["menu_item"], rect.x + 18, rect.y + 18, 28)
+
                 # Food name (Korean)
                 name = data["menu_item"]["name"]
                 nm = self.font_sm.render(name[:4], True, (255, 255, 100))
-                surface.blit(nm, nm.get_rect(center=rect.center))
+                surface.blit(nm, nm.get_rect(centerx=rect.centerx,
+                                             centery=rect.centery + 16))
 
                 # Table ID
                 tid = self.font_sm.render(
@@ -622,6 +642,11 @@ class Renderer:
 
             # Carry label (food name above employee)
             if emp.carrying:
+                menu_item = self._carry_menu_item(emp.carrying)
+                if menu_item:
+                    self._draw_food_icon(
+                        surface, menu_item,
+                        int(ecx) - 12, int(ecy) - radius - 30, 24)
                 name = self._carry_name(emp.carrying)
                 if name:
                     nm = self.font_sm.render(
@@ -641,6 +666,15 @@ class Renderer:
             return item.get("drink_item", {}).get("name", "음료")[:3]
         return ""
 
+    @staticmethod
+    def _carry_menu_item(item: dict) -> dict | None:
+        t = item.get("type", "")
+        if t == "order":
+            return item.get("item")
+        if t == "food":
+            return item.get("menu_item")
+        return None
+
     # ── carried food name labels on player ──
     def _draw_carry_labels(self, surface, shop, ox, oy):
         player = shop.player
@@ -649,13 +683,20 @@ class Renderer:
         px = player.x + ox
         py = player.y + oy
         for i, item in enumerate(player.carrying[:3]):
+            menu_item = self._carry_menu_item(item)
+            if menu_item:
+                self._draw_food_icon(
+                    surface, menu_item,
+                    int(px + TILE_SIZE // 2) - 12,
+                    int(py) - 38 - i * 22,
+                    24)
             name = self._carry_name(item)
             if not name:
                 continue
             lbl = self.font_sm.render(name, True, (255, 255, 200))
             surface.blit(lbl, lbl.get_rect(
                 centerx=int(px + TILE_SIZE // 2),
-                bottom=int(py) - 10 - i * 14))
+                bottom=int(py) - 10 - i * 22))
 
     # ═══════════════════════════════════════════════
     #  Floating texts (+$X payment labels)
