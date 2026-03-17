@@ -360,7 +360,7 @@ class DiscreteSACTrainer(BaseTrainer):
             td = target_expanded - q_a  # [B, N]
             huber = torch.where(td.abs() < 1.0, 0.5 * td.pow(2), td.abs() - 0.5)
             quantile_loss = (taus.unsqueeze(0) - (td < 0).float()).abs() * huber
-            total_q_loss = total_q_loss + quantile_loss.mean()
+            total_q_loss = total_q_loss + quantile_loss.sum(dim=1).mean()  # 각 샘플별 quantile loss 합후 평균
 
         self._q_opt.zero_grad()
         total_q_loss.backward()
@@ -368,14 +368,18 @@ class DiscreteSACTrainer(BaseTrainer):
             nn.utils.clip_grad_norm_(qn.parameters(), self._max_grad_norm)
         self._q_opt.step()
 
-        # ── Policy loss ──
+        # ── Policy loss (Target과 동일한 truncated Q 사용) ──
         probs = self.policy(obs_t)
         log_probs = torch.log(probs + 1e-8)
         with torch.no_grad():
             q_vals = []
             for qn in self.q_nets:
-                q_vals.append(qn(obs_t).mean(dim=2))  # [B, A]
-            q_pi = torch.stack(q_vals).min(dim=0).values
+                q_vals.append(qn(obs_t))  # [B, A, N]
+            cat_q = torch.cat(q_vals, dim=2)  # [B, A, n_critics*N]
+            sorted_q, _ = torch.sort(cat_q, dim=2)
+            n_keep = cat_q.shape[2] - self._top_drop
+            truncated_q = sorted_q[:, :, :n_keep]  # [B, A, n_keep]
+            q_pi = truncated_q.mean(dim=2)  # [B, A]
 
         policy_loss = (probs * (alpha * log_probs - q_pi)).sum(dim=-1).mean()
 
@@ -384,9 +388,11 @@ class DiscreteSACTrainer(BaseTrainer):
         nn.utils.clip_grad_norm_(self.policy.parameters(), self._max_grad_norm)
         self._policy_opt.step()
 
-        # ── Alpha loss ──
-        entropy = -(probs.detach() * log_probs.detach()).sum(dim=-1)
-        alpha_loss = -(self._log_alpha * (self._target_entropy - entropy)).mean()
+        # ── Alpha loss (SAC 기준) ──
+        entropy = -(probs.detach() * log_probs.detach()).sum(dim=-1)  # [B]
+        alpha_loss = -(self._log_alpha *
+                   (probs.detach() * (log_probs.detach() + self._target_entropy)
+                ).sum(dim=-1)).mean()
         self._alpha_opt.zero_grad()
         alpha_loss.backward()
         self._alpha_opt.step()

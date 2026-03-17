@@ -410,10 +410,24 @@ class CrossPlayTrainer(BaseTrainer):
         pool = []
         for entry in entries:
             try:
-                agent = load_agent(entry["path"], algo_name=entry["algo"])
+                algo = entry["algo"]
+                path = entry["path"]
+                # CrossPlay 모델은 실제로 SB3(PPO/DQN)이므로 직접 로드
+                if algo == "CrossPlay":
+                    # train_config에서 실제 알고리즘 확인, 기본값 PPO
+                    cfg_path = os.path.join(
+                        os.path.dirname(path), "train_config_used.json")
+                    real_algo = "PPO"
+                    if os.path.isfile(cfg_path):
+                        with open(cfg_path, encoding="utf-8") as f:
+                            cp_cfg = json.load(f)
+                        lnr = cp_cfg.get("_crossplay_learner", {})
+                        real_algo = lnr.get("algo", "PPO")
+                    algo = real_algo if real_algo in _SB3_ALGO_MAP else "PPO"
+                agent = load_agent(path, algo_name=algo)
                 pool.append({
                     "algo": entry["algo"],
-                    "path": entry["path"],
+                    "path": path,
                     "agent": agent,
                 })
             except Exception as e:
