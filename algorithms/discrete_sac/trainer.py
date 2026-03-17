@@ -228,6 +228,12 @@ class DiscreteSACTrainer(BaseTrainer):
                 if summary:
                     writer.add_scalar("rollout/served", summary.get("customers_served", 0), step)
                     writer.add_scalar("rollout/lost", summary.get("customers_lost", 0), step)
+                    writer.add_scalar("rollout/final_score", summary.get("final_score", 0), step)
+                    writer.add_scalar("rollout/net_profit", summary.get("net_profit", 0), step)
+                    writer.add_scalar("rollout/shop_rating", summary.get("shop_rating", 0), step)
+                    # 이벤트 총계에서 업그레이드 횟수 추적
+                    evt = summary.get("event_totals", {})
+                    writer.add_scalar("rollout/upgrades_bought", evt.get("buy_upgrade", 0), step)
                 if len(episode_rewards) % 10 == 0:
                     print(f"  [DiscreteSAC] 스텝 {step}, 에피소드 {len(episode_rewards)}, "
                           f"평균보상(최근10): {np.mean(episode_rewards[-10:]):.1f}")
@@ -248,9 +254,10 @@ class DiscreteSACTrainer(BaseTrainer):
 
             # Eval
             if step % eval_freq == 0:
-                eval_r = self._evaluate(eval_env, n_episodes=5)
-                print(f"  [DiscreteSAC] 평가 스텝 {step}: mean_reward={eval_r:.1f}")
+                eval_r, eval_score = self._evaluate(eval_env, n_episodes=5)
+                print(f"  [DiscreteSAC] 평가 스텝 {step}: mean_reward={eval_r:.1f}, mean_final_score={eval_score:.1f}")
                 writer.add_scalar("eval/mean_reward", eval_r, step)
+                writer.add_scalar("eval/mean_final_score", eval_score, step)
                 eval_timesteps.append(step)
                 eval_results.append(eval_r)
                 if eval_r > best_eval:
@@ -363,16 +370,22 @@ class DiscreteSACTrainer(BaseTrainer):
 
     def _evaluate(self, env, n_episodes: int = 5) -> float:
         total = 0.0
+        total_score = 0.0
         for _ in range(n_episodes):
             obs, _ = env.reset()
             done = False
+            ep_info = {}
             while not done:
                 obs_t = torch.FloatTensor(obs).unsqueeze(0).to(self.device)
                 action = self.policy.get_action(obs_t, deterministic=True).item()
-                obs, r, terminated, truncated, _ = env.step(action)
+                obs, r, terminated, truncated, info = env.step(action)
                 total += r
                 done = terminated or truncated
-        return total / n_episodes
+                if done:
+                    ep_info = info
+            summary = ep_info.get("episode_summary", {})
+            total_score += summary.get("final_score", 0.0)
+        return total / n_episodes, total_score / n_episodes
 
     def save(self, path: str) -> None:
         data = {

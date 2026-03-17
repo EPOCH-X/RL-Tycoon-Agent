@@ -65,8 +65,8 @@
 
 | 유형    | 한글   | RGB             | HEX       |
 | ------- | ------ | --------------- | --------- |
-| budget  | 알뜰   | (220, 180, 50)  | `#DCB432` |
-| normal  | 일반   | (220, 180, 50)  | `#DCB432` |
+| budget  | 학생   | (220, 180, 50)  | `#DCB432` |
+| normal  | 일반인 | (220, 180, 50)  | `#DCB432` |
 | family  | 가족   | (180, 200, 100) | `#B4C864` |
 | tourist | 관광객 | (100, 180, 220) | `#64B4DC` |
 | wealthy | 부유한 | (180, 120, 220) | `#B478DC` |
@@ -213,7 +213,7 @@ Clear leg/arm movement showing walking motion. Smooth loop.
 | 파일명                 | 상태             | 설명                            | 권장 프레임 |
 | ---------------------- | ---------------- | ------------------------------- | ----------- |
 | `walking_to_table.png` | 입구→테이블 이동 | 걷는 모션, 밝은 표정            | 6~8         |
-| `waiting_to_order.png` | 주문 대기        | 앉아서 두리번, 머리 위 ?! 느낌  | 4~6         |
+| `waiting_to_order.png` | 주문 대기        | 두리번, 머리 위 ?! 느낌         | 4~6         |
 | `order_taken.png`      | 음식 대기        | 앉아서 기다리기, 차분한 모션    | 4~6         |
 | `eating.png`           | 식사 중          | 냠냠 씹는 모션, 행복한 표정     | 4~8         |
 | `leaving_happy.png`    | 만족 퇴장        | 걸어나가기, 미소/하트 이펙트    | 4~6         |
@@ -221,7 +221,7 @@ Clear leg/arm movement showing walking motion. Smooth loop.
 
 ### 유형별 디자인 가이드
 
-#### budget (알뜰 손님) & normal (일반 손님)
+#### budget (학생) & normal (일반인)
 
 ```
 Top-down 2D pixel art sprite sheet of a casual restaurant customer [ANIMATION STATE].

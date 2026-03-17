@@ -13,7 +13,7 @@ from gymnasium import spaces
 
 from config.settings import (
     TILE_SIZE, UI_HEIGHT, COLORS, ASSETS_DIR, NUM_ACTIONS,
-    INTERACT_RANGE, ACTION_INTERACT, ACTION_NONE,
+    INTERACT_RANGE, ACTION_INTERACT, ACTION_NONE, ACTION_BUY_UPGRADE,
     load_json_config,
 )
 from core.shop import Shop
@@ -454,6 +454,25 @@ class TycoonEnv(gymnasium.Env):
         # ── idle_penalty: WAIT 액션 시 추가 페널티 ──
         if action == ACTION_NONE:
             events.append(("idle_penalty", 1.0))
+
+        # ── upgrade_available: 업그레이드 가능한데 안 살 때 매 스텝 페널티 ──
+        if action != ACTION_BUY_UPGRADE:
+            shop = self.shop
+            for upg in shop.upgrades_data:
+                uid = upg["id"]
+                level = shop.upgrade_levels[uid]
+                if level < upg["max_level"]:
+                    if upg.get("effect_type") == "hire_chef" and shop.num_chefs >= shop.max_chefs:
+                        continue
+                    req = upg.get("unlock_profit", 0)
+                    if shop.net_profit < req:
+                        continue
+                    cost = (upg["cost_list"][level]
+                            if "cost_list" in upg and level < len(upg["cost_list"])
+                            else int(upg["base_cost"] * (upg["cost_multiplier"] ** level)))
+                    if shop.money >= cost:
+                        events.append(("upgrade_available", 1.0))
+                        break
 
         if action in (0, 1, 2, 3):
             moved_dist = math.hypot(self.shop.player.x - before_x,

@@ -82,6 +82,8 @@ def train_single(algo_name: str, args) -> dict[str, Any]:
         overrides["n_envs"] = args.n_envs
     if args.seed is not None:
         overrides["seed"] = args.seed
+    if getattr(args, "model", None):
+        overrides["base_model"] = args.model
 
     # 사용될 설정 파일 경로 표시
     if days and days != 30:
@@ -229,7 +231,7 @@ def main():
     p.add_argument("--evaluate", action="store_true",
                    help="학습된 모델 평가 모드")
     p.add_argument("--model", type=str, default=None,
-                   help="평가할 모델 경로")
+                   help="기존 모델 경로 (CrossPlay: 학습할 모델 선택, --evaluate: 평가할 모델)")
     p.add_argument("--eval-episodes", type=int, default=20,
                    help="평가 에피소드 수")
 
