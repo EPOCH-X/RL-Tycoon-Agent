@@ -4,6 +4,354 @@
 > 서빙·음료·배달·종업원·특성 등 10가지 시스템을 갖춘 본격 타이쿤 게임입니다.
 > 팀원 5명이 각자 강화학습 브랜치에서 학습을 진행하고, 최고 성능 모델을 `main`에 병합합니다.
 
+# RL-Tycoon-Agent
+
+Pygame 기반 2D 레스토랑 경영 시뮬레이션과 강화학습 실험 프로젝트입니다.
+
+게임 플레이와 RL 학습이 같은 로직을 공유합니다. 플레이어는 손님 응대, 조리, 서빙, 음료, 직원, 특성, 업그레이드를 운영하고, 강화학습 에이전트는 동일한 규칙 위에서 학습합니다.
+
+## 현재 상태 요약
+
+- 엔진: Python 3.12, Pygame 2.6, Gymnasium
+- RL 라이브러리: Stable-Baselines3, sb3-contrib, PyTorch
+- 맵 크기: 16 x 10 타일
+- 타일 크기: 64 x 64 px
+- 기본 UI 높이: 120 px
+- 기본 게임 속도: 0.2초당 1스텝
+- 지원 모드: `human`, `versus`, `watch`, `tournament`
+- 지원 RL 알고리즘:
+  - `PPO`
+  - `DQN`
+  - `QRDQN`
+  - `A3C`
+  - `SAC`
+  - `DiscreteSAC`
+  - `Dreamer`
+  - `MARL`
+  - `ModelBased`
+  - `CrossPlay`
+
+## Quick Start
+
+```bash
+pip install -r requirements.txt
+python main.py
+```
+
+5060 환경용 패키지 세트가 필요하면 아래도 사용할 수 있습니다.
+
+```bash
+pip install -r 5060requirements.txt
+```
+
+## 게임 실행
+
+```bash
+python main.py
+python main.py --mode human
+python main.py --mode human --days 60
+python main.py --mode versus --model models/ppo_v4/best_model.zip
+python main.py --mode watch --model models/ppo_v4/best_model.zip --speed 2
+python main.py --mode tournament --speed 3
+```
+
+### `main.py` 옵션
+
+| 옵션             | 설명                                                     |
+| ---------------- | -------------------------------------------------------- |
+| `--mode`         | `human`, `versus`, `watch`, `tournament`                 |
+| `--model`        | 학습된 모델 경로. 주로 `versus`, `watch`에서 사용        |
+| `--algo`         | 관전 모델 알고리즘 이름. 경로 자동 탐지가 애매할 때 지정 |
+| `--speed`        | 관전/토너먼트 속도 배수                                  |
+| `--target-money` | 목표 금액 강제 지정                                      |
+| `--day-limit`    | 일수 강제 지정                                           |
+| `--days`         | `30` 또는 `60`, `--day-limit`의 축약형                   |
+
+## 플레이 모드
+
+### 솔로 모드
+
+- 키보드로 직접 레스토랑을 운영합니다.
+- 게임 오버 시 랭킹이 기록됩니다.
+
+### 대결 모드
+
+- 왼쪽은 플레이어, 오른쪽은 AI입니다.
+- `--model`로 불러온 모델과 같은 조건에서 경쟁합니다.
+
+### 관전 모드
+
+- 학습된 모델 하나를 전체 렌더링으로 관전합니다.
+- 기본 정책은 확률적(`stochastic`)으로 시작합니다.
+- 조작:
+  - `ESC`: 종료
+  - `R`: 종료 후 재시작
+  - `D`: 결정적/확률적 정책 전환
+  - `↑ / ↓`: 속도 조절
+
+### 토너먼트 모드
+
+- `models/` 아래의 학습된 모델을 자동 탐색해 최대 4개까지 동시에 경쟁시킵니다.
+- 알고리즘별 대표 모델을 골라 순위를 매깁니다.
+- 기본 정책은 확률적(`stochastic`)으로 시작합니다.
+- 창은 축소 렌더링으로 표시됩니다.
+- 조작:
+  - `ESC`: 종료
+  - `R`: 종료 후 재시작
+  - `D`: 결정적/확률적 정책 전환
+  - `↑ / ↓`: 속도 조절
+
+## 핵심 게임 로직
+
+### 기본 운영 흐름
+
+1. 손님이 입장하거나 대기열에 합류합니다.
+2. 빈 테이블이 있으면 착석합니다.
+3. 주문을 받습니다.
+4. 주방에서 음식이 조리됩니다.
+5. 바텐더가 있으면 음료 주문이 추가될 수 있습니다.
+6. 플레이어 또는 직원이 음식/음료를 전달합니다.
+7. 결제와 팁이 정산됩니다.
+8. 손님 만족도가 평점과 최종 점수에 반영됩니다.
+
+### 점수 체계
+
+- `net_profit`: 현재 구현상 판매 총수입 기준 누적값
+- `shop_rating_stars`: 5점 만점 환산 평점
+- `final_score = net_profit * (1 + shop_rating_stars / 10)`
+
+즉, 순수익과 평점을 동시에 올려야 최종 점수가 커집니다.
+
+### 시간과 승리 조건
+
+- 기본 목표 금액: `1500`
+- 기본 제한 일수: `30`
+- `--days 60` 또는 `--day-limit 60` 사용 가능
+- 하루 길이: 60초
+
+## 맵과 시설
+
+기본 맵은 [config/map_default.json](config/map_default.json)에 정의됩니다.
+
+- 맵 크기: `16 x 10`
+- 초기 테이블: 4개
+- 추가 구매 가능 테이블 슬롯: 10개
+- 주방 카운터: 3칸
+- 바 카운터: 2칸
+- 쓰레기통: 1개
+- 입구와 플레이어 시작 위치가 고정 배치됩니다.
+
+### 타일 타입
+
+| 코드 | 의미            |
+| ---- | --------------- |
+| `0`  | floor           |
+| `1`  | wall            |
+| `2`  | table           |
+| `3`  | kitchen_counter |
+| `4`  | bar_counter     |
+| `5`  | trash_can       |
+
+## 손님 유형
+
+손님 유형은 [config/customers.json](config/customers.json)에 정의됩니다.
+
+| ID        | 이름        | 인내심 | 부유도 배수 | 팁 범위 | 등장 가중치 | 평점 해금 조건 |
+| --------- | ----------- | ------ | ----------- | ------- | ----------- | -------------- |
+| `budget`  | 학생        | 80.0   | 0.8         | 0 ~ 1   | 5           | 0.0            |
+| `normal`  | 일반인      | 65.0   | 1.0         | 1 ~ 3   | 4           | 0.0            |
+| `tourist` | 관광객      | 58.0   | 1.5         | 3 ~ 8   | 2           | 0.4            |
+| `wealthy` | 부유한 손님 | 50.0   | 1.8         | 4 ~ 12  | 2           | 0.5            |
+| `vip`     | VIP         | 40.0   | 3.0         | 8 ~ 25  | 1           | 0.7            |
+| `critic`  | 평론가      | 32.0   | 2.5         | 10 ~ 35 | 1           | 0.8            |
+
+메모:
+
+- 평점이 높아질수록 상위 고객군이 등장합니다.
+- `marketing` 업그레이드는 부유한 손님 비중에 영향을 줍니다.
+- 바텐더를 고용하면 일부 주문에 음료가 함께 붙습니다.
+
+## 음식과 음료
+
+### 음식 메뉴
+
+음식은 [config/menu.json](config/menu.json)에 정의됩니다.
+
+초기부터 열려 있는 메뉴:
+
+- 커피
+- 샌드위치
+- 파스타
+
+순이익 조건과 해금 비용이 필요한 메뉴:
+
+- 스테이크
+- 초밥 세트
+- 랍스터
+- 와규 스테이크
+- 트러플 코스
+
+### 음료 시스템
+
+음료는 [config/beverages.json](config/beverages.json)에 정의됩니다.
+
+- 음료 시스템 해금 기준 순이익: `300`
+- 음료는 바텐더 고용 후부터 의미가 생깁니다.
+- 현재 음료 목록:
+  - 물
+  - 주스
+  - 레모네이드
+  - 칵테일
+  - 와인
+
+## 배달 시스템
+
+배달 설정은 [config/delivery.json](config/delivery.json)에 존재합니다.
+
+- 해금 기준 순이익: `600`
+- 주문 간격: `8.0`
+- 배달 시간: `10.0`
+- 가격 배수: `0.9`
+- 팁 범위: `2 ~ 6`
+
+현재 코드는 주방 스테이션 레벨에서 배달 완료 대기 큐를 관리합니다. README 기준으로는 설정과 로직이 함께 존재하는 시스템으로 보면 됩니다.
+
+## 업그레이드 시스템
+
+업그레이드는 [config/upgrades.json](config/upgrades.json)에 정의됩니다.
+
+업그레이드 탭은 3개입니다.
+
+- 시설
+- 인력
+- 메뉴
+
+현재 업그레이드 목록:
+
+| ID               | 이름         | 분류     | 효과                                |
+| ---------------- | ------------ | -------- | ----------------------------------- |
+| `speed_shoes`    | 이동속도 업  | personal | 플레이어 이동 속도 +20%             |
+| `kitchen_expand` | 주방 확장    | facility | 주방 칸 +1, 보관 +1, 요리사 한도 +1 |
+| `hire_chef`      | 요리사 고용  | staff    | 요리사 +1                           |
+| `cook_speed`     | 조리 속도 업 | facility | 조리 속도 +10%                      |
+| `buy_table`      | 테이블 추가  | facility | 새 테이블 설치                      |
+| `marketing`      | 마케팅       | business | 부유한 손님 증가                    |
+| `hire_waiter`    | 종업원 고용  | staff    | 자동 주문/서빙                      |
+| `hire_bartender` | 바텐더 고용  | staff    | 음료 서비스 시작                    |
+| `employee_speed` | 직원 속도 업 | staff    | 직원 이동 속도 +10%                 |
+
+## 특성 시스템
+
+특성은 [config/traits.json](config/traits.json)에 정의됩니다.
+
+- 특성 제안 주기: 4일마다
+- 한 번에 제시되는 선택지 수: 3개
+
+현재 특성 목록:
+
+| ID                | 이름          | 효과                |
+| ----------------- | ------------- | ------------------- |
+| `gourmet`         | 고급 음식     | 모든 음식 가격 +$2  |
+| `master_chef`     | 달인          | 조리 시간 -1초      |
+| `charming`        | 매력적        | 팁 +30%             |
+| `efficient`       | 효율적        | 이동 속도 +15%      |
+| `popular`         | 인기          | 손님 방문 빈도 +20% |
+| `patient_service` | 친절한 서비스 | 손님 인내심 +5초    |
+| `tip_jar`         | 팁 항아리     | 기본 팁 +$3         |
+
+## 조작법
+
+### 솔로/대결 모드
+
+| 키                | 동작                      |
+| ----------------- | ------------------------- |
+| `WASD` / `방향키` | 이동                      |
+| `Space` / `Enter` | 상호작용                  |
+| `U`               | 업그레이드 메뉴 열기/닫기 |
+| `Tab`             | 업그레이드 탭 순환        |
+| `1` ~ `9`         | 업그레이드 구매           |
+| `1` / `2` / `3`   | 특성 선택                 |
+| `R`               | 게임 종료 후 재시작       |
+| `ESC`             | 메뉴 닫기 또는 종료       |
+
+## 강화학습 학습
+
+통합 런처는 [algorithms/train_launcher.py](algorithms/train_launcher.py)입니다.
+
+### 기본 예시
+
+```bash
+python -m algorithms.train_launcher --algo PPO
+python -m algorithms.train_launcher --algo PPO --days 60
+python -m algorithms.train_launcher --algo QRDQN
+python -m algorithms.train_launcher --algo DiscreteSAC --days 60
+python -m algorithms.train_launcher --algo CrossPlay --timesteps 200000
+```
+
+### 이어서 학습
+
+```bash
+python -m algorithms.train_launcher --algo PPO --resume
+```
+
+### 평가
+
+```bash
+python -m algorithms.train_launcher --algo PPO --evaluate --model models/ppo_v4/best_model.zip
+```
+
+### 벤치마크
+
+```bash
+python -m algorithms.train_launcher --benchmark --timesteps 100000
+python -m algorithms.compare_results
+```
+
+## 현재 알고리즘 메모
+
+- `PPO`: 현재 프로젝트에서 가장 안정적인 기준선 역할
+- `DQN`: 단순 baseline
+- `QRDQN`: 이산 행동 공간용 분포적 DQN 비교군
+- `DiscreteSAC`: 커스텀 이산 SAC
+- `Dreamer`: 세계모델 기반 실험용
+- `CrossPlay`: 여러 알고리즘 모델을 상대 풀로 삼아 추가 학습
+
+작은 이산 행동 공간과 보상 shaping 비중이 큰 환경이라, 일반적으로는 Dreamer보다 PPO/QRDQN 계열이 더 잘 맞을 가능성이 큽니다.
+
+## 프로젝트 구조
+
+```text
+RL-Tycoon-Agent/
+├── main.py
+├── ai/
+├── algorithms/
+├── assets/
+├── config/
+├── core/
+├── data/
+├── modes/
+├── rendering/
+├── README.md
+├── DEV_README.md
+└── ALGORITHM_GUIDE.md
+```
+
+### 주요 디렉터리
+
+- [main.py](main.py): 게임 진입점
+- [core](core): 실제 게임 상태와 규칙
+- [modes](modes): 인간 플레이, 대결, 관전, 토너먼트 모드
+- [ai](ai): Gym 환경, 에이전트 로딩
+- [algorithms](algorithms): RL 트레이너 구현
+- [config](config): 메뉴, 고객, 특성, 업그레이드, 맵 설정
+- [rendering](rendering): 렌더러와 에셋 관리
+
+## 관련 문서
+
+- [ALGORITHM_GUIDE.md](ALGORITHM_GUIDE.md): 알고리즘별 설명과 비교
+- [DEV_README.md](DEV_README.md): 개발 메모
+- [SPRITE_PROMPT_GUIDE.md](SPRITE_PROMPT_GUIDE.md): 스프라이트 제작 가이드
+
 Python 3.12 + **Pygame 2.6** 기반 2D 레스토랑 매니지먼트 게임
 **Gymnasium** 환경 래퍼 + **Stable-Baselines3 (PPO)** 강화학습 에이전트
 
