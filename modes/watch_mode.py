@@ -53,6 +53,8 @@ class WatchMode(BaseMode):
         self.ranking = RankingManager()
 
         self.agent = load_agent(model_path, algo_name=algo_name)
+        if hasattr(self.agent, 'deterministic'):
+            self.agent.deterministic = False  # 기본: 확률적 정책
         self.speed_multiplier = max(0.5, speed_multiplier)
 
         self._model_path = model_path

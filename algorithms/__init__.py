@@ -3,6 +3,7 @@
 각 하위 폴더는 독립된 알고리즘 구현체를 포함합니다:
     ppo/        – Proximal Policy Optimization (SB3)
     dqn/        – Deep Q-Network (SB3)
+    qrdqn/      – Quantile Regression DQN (SB3-Contrib)
     a3c/        – Asynchronous Advantage Actor-Critic (PyTorch 직접 구현)
     sac/        – Soft Actor-Critic (SB3, Discrete 래퍼)
     marl/       – Multi-Agent RL (Self-play + Independent PPO)

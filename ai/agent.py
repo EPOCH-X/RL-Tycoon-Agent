@@ -1,7 +1,7 @@
 """Agent interface – abstracts away whether the agent is random, rule-based,
 or a trained RL model.  Used by VersusMode and evaluation scripts.
 
-Supports all algorithm types: PPO, DQN, A3C, SAC, MARL, ModelBased.
+Supports all algorithm types: PPO, DQN, QRDQN, A3C, SAC, MARL, ModelBased.
 """
 
 import os
@@ -12,6 +12,7 @@ from config.settings import NUM_ACTIONS
 # 알고리즘 ↔ 경로 키워드 매핑 (자동 탐지용)
 _ALGO_PATH_HINTS: dict[str, str] = {
     "a3c": "A3C",
+    "qrdqn": "QRDQN",
     "sac": "SAC",
     "dqn": "DQN",
     "marl": "MARL",
@@ -138,7 +139,7 @@ def load_agent(model_path: str | None = None,
 
     Args:
         model_path: 학습된 모델 경로
-        algo_name: 알고리즘 이름 (PPO, DQN, A3C, SAC, MARL, ModelBased)
+        algo_name: 알고리즘 이름 (PPO, DQN, QRDQN, A3C, SAC, MARL, ModelBased)
                    None이면 경로에서 자동 탐지 후, SB3 PPO 로딩 시도
     """
     if model_path is None:

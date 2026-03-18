@@ -93,6 +93,7 @@ def _find_latest_version(base_path: str) -> str | None:
 ALGO_KR: dict[str, str] = {
     "PPO":        "근위 정책 최적화",
     "DQN":        "심층 Q-네트워크",
+    "QRDQN":      "분위수 회귀 심층 Q-네트워크",
     "A3C":        "비동기 어드밴티지 액터-크리틱",
     "SAC":        "소프트 액터-크리틱",
     "MARL":       "멀티에이전트 자기대결",

@@ -92,6 +92,11 @@ class TournamentMode(BaseMode):
         for i, e in enumerate(self._entries):
             print(f"    {i+1}. {e['algo']} → {e['path']}")
 
+        # ── 에이전트 기본 정책: 확률적(stochastic) ──
+        for entry in self._entries:
+            if hasattr(entry["agent"], "deterministic"):
+                entry["agent"].deterministic = False
+
         # ── Layout: 1→1col, 2→2col, 3-4→2×2 grid ──
         sample_shop = self._entries[0]["shop"]
         self._panel_w = sample_shop.grid_width * TILE_SIZE
@@ -107,12 +112,19 @@ class TournamentMode(BaseMode):
 
         self._cols = cols
         self._rows = rows
-        screen_w = cols * self._panel_w + (cols - 1) * div
-        screen_h = rows * self._panel_h + (rows - 1) * div
+        self._internal_w = cols * self._panel_w + (cols - 1) * div
+        self._internal_h = rows * self._panel_h + (rows - 1) * div
 
         # Add scoreboard area at bottom
         self._scoreboard_h = 160
-        screen_h += self._scoreboard_h
+        self._internal_h += self._scoreboard_h
+
+        # 축소 렌더링 (0.5×)
+        self._scale = 0.5
+        screen_w = int(self._internal_w * self._scale)
+        screen_h = int(self._internal_h * self._scale)
+        self._render_surface = pygame.Surface(
+            (self._internal_w, self._internal_h))
 
         super().__init__(screen_w, screen_h, title="RL 타이쿤 – 토너먼트")
 
@@ -135,6 +147,11 @@ class TournamentMode(BaseMode):
                     return
                 if event.key == pygame.K_r and self._all_done:
                     self._restart()
+                if event.key == pygame.K_d:
+                    for entry in self._entries:
+                        ag = entry["agent"]
+                        if hasattr(ag, "deterministic"):
+                            ag.deterministic = not ag.deterministic
                 if event.key == pygame.K_UP:
                     self.speed_multiplier = min(10.0, self.speed_multiplier + 0.5)
                 if event.key == pygame.K_DOWN:
@@ -168,7 +185,8 @@ class TournamentMode(BaseMode):
 
     # ── render ───────────────────────────────────
     def render(self):
-        self.screen.fill((20, 20, 35))
+        surf = self._render_surface
+        surf.fill((20, 20, 35))
         n = len(self._entries)
         div = VERSUS_DIVIDER_WIDTH
 
@@ -178,14 +196,14 @@ class TournamentMode(BaseMode):
             ox = col * (self._panel_w + div)
             oy = row * (self._panel_h + div)
 
-            self._renderers[idx].draw(self.screen, entry["shop"],
+            self._renderers[idx].draw(surf, entry["shop"],
                                       offset_x=ox, offset_y=oy)
 
             # Label
             font = self._get_font(16)
             color = self._participant_color(idx)
             label = font.render(f"{entry['algo']}", True, color)
-            self.screen.blit(label, (ox + 4, oy + 2))
+            surf.blit(label, (ox + 4, oy + 2))
 
         # ── Dividers ──
         total_w = self._cols * self._panel_w + (self._cols - 1) * div
@@ -193,22 +211,25 @@ class TournamentMode(BaseMode):
 
         for c in range(1, self._cols):
             x = c * self._panel_w + (c - 1) * div
-            pygame.draw.rect(self.screen, VERSUS_DIVIDER_COLOR,
+            pygame.draw.rect(surf, VERSUS_DIVIDER_COLOR,
                              (x, 0, div, total_h))
         for r in range(1, self._rows):
             y = r * self._panel_h + (r - 1) * div
-            pygame.draw.rect(self.screen, VERSUS_DIVIDER_COLOR,
+            pygame.draw.rect(surf, VERSUS_DIVIDER_COLOR,
                              (0, y, total_w, div))
 
         # ── Scoreboard ──
-        self._draw_scoreboard(total_h)
+        self._draw_scoreboard(total_h, surf)
 
-        # ── Speed info ──
+        # ── Policy / Speed info ──
         font_sm = self._get_font(14)
+        det = getattr(self._entries[0]["agent"], "deterministic", True)
+        policy_str = "결정적" if det else "확률적"
         speed_txt = font_sm.render(
-            f"속도: ×{self.speed_multiplier:.1f}  ↑↓: 속도조절  R: 재시작  ESC: 종료",
+            f"속도: ×{self.speed_multiplier:.1f}  정책: {policy_str}  "
+            f"D: 정책전환  ↑↓: 속도조절  R: 재시작  ESC: 종료",
             True, (140, 140, 160))
-        self.screen.blit(speed_txt, (4, self.screen.get_height() - 18))
+        surf.blit(speed_txt, (4, self._internal_h - 18))
 
         # ── Game over overlay ──
         if self._all_done:
@@ -220,26 +241,32 @@ class TournamentMode(BaseMode):
                 rank = self._get_rank(entry["algo"])
                 extra = f"#{rank}" if rank else ""
                 self._renderers[idx].draw_game_over(
-                    self.screen, entry["shop"],
+                    surf, entry["shop"],
                     offset_x=ox, offset_y=oy, extra_text=extra)
 
+        # 축소하여 화면에 표시
+        scaled = pygame.transform.smoothscale(
+            surf, (self.screen.get_width(), self.screen.get_height()))
+        self.screen.blit(scaled, (0, 0))
         pygame.display.flip()
 
-    def _draw_scoreboard(self, y_start: int):
+    def _draw_scoreboard(self, y_start: int,
+                         surface: pygame.Surface | None = None):
         """화면 하단에 실시간 스코어보드를 그립니다."""
+        dst = surface or self.screen
         font = self._get_font(18)
         font_sm = self._get_font(14)
 
         # Background
-        board_rect = pygame.Rect(0, y_start, self.screen.get_width(),
+        board_rect = pygame.Rect(0, y_start, dst.get_width(),
                                  self._scoreboard_h)
-        pygame.draw.rect(self.screen, (25, 25, 45), board_rect)
-        pygame.draw.line(self.screen, (80, 80, 120),
-                         (0, y_start), (self.screen.get_width(), y_start), 2)
+        pygame.draw.rect(dst, (25, 25, 45), board_rect)
+        pygame.draw.line(dst, (80, 80, 120),
+                         (0, y_start), (dst.get_width(), y_start), 2)
 
         # Title
         title = font.render("📊 토너먼트 스코어보드", True, (255, 215, 0))
-        self.screen.blit(title, (10, y_start + 8))
+        dst.blit(title, (10, y_start + 8))
 
         # Headers
         hx = 10
@@ -249,7 +276,7 @@ class TournamentMode(BaseMode):
         col_widths = [50, 120, 100, 100, 80, 60, 60, 80]
         for header, cw in zip(headers, col_widths):
             h_surf = font_sm.render(header, True, (160, 180, 200))
-            self.screen.blit(h_surf, (hx, hy))
+            dst.blit(h_surf, (hx, hy))
             hx += cw
 
         # Sort entries by score descending
@@ -292,7 +319,7 @@ class TournamentMode(BaseMode):
             ]
             for val, cw in zip(values, col_widths):
                 v_surf = font_sm.render(val, True, color)
-                self.screen.blit(v_surf, (rx, ry))
+                dst.blit(v_surf, (rx, ry))
                 rx += cw
 
     def _compute_rankings(self):
