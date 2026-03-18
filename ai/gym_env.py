@@ -73,6 +73,7 @@ def _obs_size(shop: Shop) -> int:
         + shop.max_tables * 6
         + 8
         + 25
+        + 10
     )
 
 
@@ -203,6 +204,26 @@ def build_observation(shop: Shop) -> np.ndarray:
             obs[idx + 20 + offset] = 0.0
         else:
             obs[idx + 20 + offset] = min(1.0, cost / max(1, shop.target_money))
+    idx += 25
+
+    occupied_tables = sum(1 for table in shop.tables if table.customer is not None)
+    empty_tables = max(0, len(shop.tables) - occupied_tables)
+    obs[idx] = occupied_tables / max(1, len(shop.tables))
+    obs[idx + 1] = empty_tables / max(1, len(shop.tables))
+    obs[idx + 2] = shop.num_chefs / max(1, shop.max_chefs)
+    waiter_level = float(shop.upgrade_levels.get("hire_waiter", 0))
+    obs[idx + 3] = waiter_level / max(1.0, shop._get_upgrade_data("hire_waiter")["max_level"])
+    obs[idx + 4] = shop.kitchen.num_cooking / max(1, shop.kitchen.cooking_capacity)
+    obs[idx + 5] = len(shop.kitchen.ready) / max(1, shop.kitchen.storage_capacity)
+
+    waiter_cost = shop.get_upgrade_next_cost("hire_waiter")
+    table_cost = shop.get_upgrade_next_cost("buy_table")
+    chef_cost = shop.get_upgrade_next_cost("hire_chef")
+    kitchen_cost = shop.get_upgrade_next_cost("kitchen_expand")
+    obs[idx + 6] = 0.0 if waiter_cost is None else min(1.0, shop.money / max(1, waiter_cost))
+    obs[idx + 7] = 0.0 if table_cost is None else min(1.0, shop.money / max(1, table_cost))
+    obs[idx + 8] = 0.0 if chef_cost is None else min(1.0, shop.money / max(1, chef_cost))
+    obs[idx + 9] = 0.0 if kitchen_cost is None else min(1.0, shop.money / max(1, kitchen_cost))
 
     return obs
 

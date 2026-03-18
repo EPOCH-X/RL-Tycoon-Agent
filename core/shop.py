@@ -23,7 +23,7 @@ import numpy as np
 from config.settings import (
     TILE_SIZE, STEP_INTERVAL, CUSTOMER_SPAWN_INTERVAL,
     KITCHEN_CAPACITY, DEFAULT_TARGET_MONEY, DEFAULT_DAY_LIMIT,
-    DAY_LENGTH, SATISFACTION_HISTORY_LEN,
+    DAY_LENGTH, SATISFACTION_HISTORY_LEN, SATISFACTION_FAST_THRESHOLD,
     PLAYER_SPEED, PLAYER_RADIUS, INTERACT_RANGE,
     EMPLOYEE_SPEED, EMPLOYEE_ACTION_DELAY,
     MAX_WAITING_QUEUE, WAITING_PATIENCE,
@@ -227,6 +227,10 @@ class Shop:
         # ── stats ────────────────────────────────
         self.customers_served: int = 0
         self.customers_lost: int = 0
+        self.angry_table_leaves: int = 0
+        self.served_satisfaction_sum: float = 0.0
+        self.fast_service_count: int = 0
+        self.slow_service_count: int = 0
         self.upgrade_purchase_log: list[dict] = []
         self.trait_offer_log: list[dict] = []
         self.trait_pick_log: list[dict] = []
@@ -477,6 +481,10 @@ class Shop:
         self.message_timer = 0.0
         self.customers_served = 0
         self.customers_lost = 0
+        self.angry_table_leaves = 0
+        self.served_satisfaction_sum = 0.0
+        self.fast_service_count = 0
+        self.slow_service_count = 0
         self.upgrade_purchase_log = []
         self.trait_offer_log = []
         self.trait_pick_log = []
@@ -623,6 +631,7 @@ class Shop:
             cust.update(dt)
 
             if cust.state == CustomerState.LEAVING_HAPPY:
+                satisfaction = cust.calc_satisfaction()
                 payment = cust.calc_payment(
                     food_price_bonus=self.food_price_bonus,
                     tip_bonus_pct=self.tip_bonus_pct,
@@ -630,8 +639,13 @@ class Shop:
                 )
                 self.money += payment
                 self.total_earned += payment
-                self._record_satisfaction(cust.calc_satisfaction())
+                self._record_satisfaction(satisfaction)
                 self.customers_served += 1
+                self.served_satisfaction_sum += satisfaction
+                if cust.patience_ratio >= SATISFACTION_FAST_THRESHOLD:
+                    self.fast_service_count += 1
+                else:
+                    self.slow_service_count += 1
                 events.append(("customer_payment", float(payment)))
                 # +$X 플로팅 텍스트
                 self.floating_texts.append({
@@ -652,6 +666,7 @@ class Shop:
             elif cust.state == CustomerState.LEAVING_ANGRY:
                 self._record_satisfaction(-1.0)
                 self.customers_lost += 1
+                self.angry_table_leaves += 1
                 events.append(("lost_customer", 1.0))
                 # ── 고아 음식 정리: 떠난 손님의 주문을 주방/바에서 제거 ──
                 orphaned = self.kitchen.remove_for_table(table.table_id)
@@ -1739,7 +1754,26 @@ class Shop:
     def _buy_specific_upgrade(self, upgrade_id: str) -> list[tuple[str, float]]:
         """RL action: buy a specific upgrade so policy can learn upgrade choice."""
         if self.buy_upgrade(upgrade_id):
-            return [("buy_upgrade", 1.0)]
+            events = [("buy_upgrade", 1.0)]
+            events.append((f"buy_{upgrade_id}", 1.0))
+            if upgrade_id == "hire_waiter" and len(self.waiting_queue) >= max(2, self.max_waiting_queue // 2):
+                events.append(("buy_waiter_under_queue_pressure", 1.0))
+            if upgrade_id in ("hire_chef", "kitchen_expand"):
+                kitchen_busy = (
+                    self.kitchen.num_cooking >= max(1, self.kitchen.cooking_capacity - 1)
+                    or len(self.kitchen.ready) >= max(1, self.kitchen.storage_capacity - 1)
+                )
+                if kitchen_busy:
+                    events.append(("buy_kitchen_when_busy", 1.0))
+            if upgrade_id == "buy_table":
+                lacking_ops = (
+                    len(self.waiting_queue) == 0
+                    and len(self.employees) == 0
+                    and self.kitchen.num_cooking >= max(1, self.kitchen.cooking_capacity - 1)
+                )
+                if lacking_ops:
+                    events.append(("buy_table_without_ops_support", 1.0))
+            return events
         return [("no_upgrade", 1.0)]
 
     # ═══════════════════════════════════════════════
@@ -2093,45 +2127,66 @@ class Shop:
             self.select_trait(best_idx)
 
     def _score_trait_choice(self, trait: dict) -> float:
-        """Heuristic score for AI-only trait auto-selection."""
+        """Heuristic score for AI-only trait auto-selection.
+
+        exp24 30일 로그 기준:
+        - 고득점 런은 master_chef, efficient, patient_service 비중이 높았다.
+        - gourmet는 보조 축으로 유효했다.
+        - popular / tip 계열은 우선순위가 낮았다.
+        """
         effect = trait.get("effect", "")
         score_map = {
-            "carry_capacity": 118.0,
-            "cook_time_reduction": 115.0,
-            "speed_bonus": 105.0,
-            "patience_bonus": 95.0,
-            "food_price_bonus": 70.0,
-            "tip_bonus": 50.0,
-            "base_tip": 45.0,
-            "spawn_rate": 20.0,
+            "cook_time_reduction": 130.0,
+            "speed_bonus": 118.0,
+            "patience_bonus": 108.0,
+            "food_price_bonus": 82.0,
+            "carry_capacity": 72.0,
+            "tip_bonus": 28.0,
+            "base_tip": 24.0,
+            "spawn_rate": 8.0,
         }
         score = score_map.get(effect, 0.0)
 
         busy_shop = len(self.tables) >= 6
         struggling = self.customers_lost >= max(1, self.customers_served)
+        late_game = self.current_day >= max(10, self.day_limit // 3)
+        high_rating = self.shop_rating >= 0.72
 
         if effect == "carry_capacity":
-            score += 25.0 if busy_shop else 5.0
+            score += 12.0 if busy_shop else 4.0
             if self.player.carry_capacity >= 2:
-                score -= 60.0
+                score -= 70.0
         if effect == "cook_time_reduction":
             if self.kitchen.num_cooking >= max(1, self.kitchen.cooking_capacity - 1):
-                score += 25.0
+                score += 30.0
             if self.num_chefs <= 1:
-                score += 15.0
+                score += 18.0
+            if late_game:
+                score += 12.0
         if effect == "speed_bonus":
-            score += 20.0 if busy_shop else 8.0
-        if effect == "patience_bonus" and struggling:
-            score += 35.0
+            score += 26.0 if busy_shop else 10.0
+            if late_game:
+                score += 8.0
+        if effect == "patience_bonus":
+            if struggling:
+                score += 38.0
+            if len(self.waiting_queue) >= max(2, self.max_waiting_queue // 2):
+                score += 18.0
         if effect == "spawn_rate":
-            if struggling or len(self.tables) < 5:
-                score -= 40.0
+            if struggling or len(self.tables) < 6:
+                score -= 55.0
             else:
+                score += 4.0
+        if effect == "food_price_bonus":
+            if self.money < self.target_money * 0.5:
+                score += 12.0
+            if late_game:
                 score += 10.0
-        if effect == "food_price_bonus" and self.money < self.target_money * 0.5:
-            score += 10.0
-        if effect in ("tip_bonus", "base_tip") and self.shop_rating >= 0.7:
-            score += 12.0
+        if effect in ("tip_bonus", "base_tip"):
+            if high_rating:
+                score += 8.0
+            if not late_game:
+                score -= 10.0
 
         return score
 
@@ -2164,16 +2219,28 @@ class Shop:
 
     def get_game_result(self) -> dict:
         """Return game result data for ranking system."""
+        served_total = max(1, self.customers_served)
+        total_lost = max(1, self.customers_lost + self.waiting_customers_left)
         return {
             "money": self.money,
             "net_profit": self.net_profit,
             "day_limit": self.day_limit,
             "customers_served": self.customers_served,
             "customers_lost": self.customers_lost,
+            "waiting_customers_left": self.waiting_customers_left,
+            "waiting_customers_seated": self.waiting_customers_seated,
+            "angry_table_leaves": self.angry_table_leaves,
             "shop_rating": round(self.shop_rating, 4),
             "shop_rating_stars": self.shop_rating_stars,
             "final_score": round(self.final_score, 1),
             "won": self.won,
+            "avg_served_satisfaction": round(self.served_satisfaction_sum / served_total, 4),
+            "fast_service_count": self.fast_service_count,
+            "slow_service_count": self.slow_service_count,
+            "fast_service_ratio": round(self.fast_service_count / served_total, 4),
+            "slow_service_ratio": round(self.slow_service_count / served_total, 4),
+            "queue_leave_ratio": round(self.waiting_customers_left / total_lost, 4),
+            "angry_leave_ratio": round(self.angry_table_leaves / total_lost, 4),
             "upgrade_levels": dict(self.upgrade_levels),
             "traits": dict(self.traits),
             "upgrade_purchase_log": copy.deepcopy(self.upgrade_purchase_log),
