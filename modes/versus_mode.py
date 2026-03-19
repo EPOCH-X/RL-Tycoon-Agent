@@ -80,7 +80,13 @@ class VersusMode(BaseMode):
         self.agent = load_agent(model_path, algo_name=algo_name)
         if hasattr(self.agent, 'deterministic'):
             self.agent.deterministic = False  # 확률적 정책 사용
-        self._algo_name = algo_name or "Random"
+        # 폴더명을 표시 이름으로 사용
+        if model_path:
+            import os as _os
+            self._display_name = _os.path.basename(
+                _os.path.dirname(model_path))
+        else:
+            self._display_name = "Random"
 
         self._interact_pressed = False
         self.winner: str | None = None
@@ -222,7 +228,7 @@ class VersusMode(BaseMode):
         font_pip = pygame.font.SysFont(kr_font, 18, bold=True)
         ai_shop = self.ai_shop
         stars = ai_shop.shop_rating * 5.0
-        info_text = (f"[{self._algo_name}]  ${ai_shop.money}"
+        info_text = (f"[{self._display_name}]  ${ai_shop.money}"
                      f"(${ai_shop.net_profit})  {stars:.1f}")
         info_surf = font_pip.render(info_text, True, (255, 255, 255))
         # Semi-transparent background bar

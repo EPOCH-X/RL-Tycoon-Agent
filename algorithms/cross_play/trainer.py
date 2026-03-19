@@ -45,7 +45,7 @@ def _find_trained_models() -> list[dict]:
     """models/ 디렉토리에서 학습된 모델들을 자동 탐색합니다.
 
     Returns:
-        [{"algo": "PPO", "path": "models/ppo/best_model.zip"}, ...]
+        [{"algo": "PPO", "path": "...", "name": "폴더명"}, ...]
     """
     models_dir = "models"
     if not os.path.isdir(models_dir):
@@ -64,6 +64,9 @@ def _find_trained_models() -> list[dict]:
                 entry = {"path": full[:-3]}
             if entry is None:
                 continue
+
+            # 폴더명을 표시 이름으로 사용 (예: Yeonggon_PPO)
+            entry["name"] = os.path.basename(root)
 
             # Detect algorithm from path or config
             cfg_path = os.path.join(root, "train_config_used.json")

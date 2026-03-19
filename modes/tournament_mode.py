@@ -47,15 +47,15 @@ class TournamentMode(BaseMode):
         # ── 참가자 로드 ──
         if participants is None:
             entries = _find_all_models()
-            # Deduplicate: keep best_model per algorithm
-            seen_algos: dict[str, dict] = {}
+            # Deduplicate: keep best_model per folder name
+            seen_names: dict[str, dict] = {}
             for entry in entries:
-                algo = entry.get("algo", "Unknown")
+                name = entry.get("name", entry.get("algo", "Unknown"))
                 path = entry.get("path", "")
                 # Prefer best_model over final_model
-                if algo not in seen_algos or "best" in path:
-                    seen_algos[algo] = entry
-            participants = list(seen_algos.values())[:self.MAX_PARTICIPANTS]
+                if name not in seen_names or "best" in path:
+                    seen_names[name] = entry
+            participants = list(seen_names.values())[:self.MAX_PARTICIPANTS]
 
         if not participants:
             raise RuntimeError(
@@ -71,14 +71,16 @@ class TournamentMode(BaseMode):
         self._entries: list[dict] = []
         for entry in participants:
             algo = entry.get("algo", "Unknown")
+            name = entry.get("name", algo)
             path = entry.get("path", "")
             try:
                 agent = load_agent(path, algo_name=algo)
             except Exception as e:
-                print(f"  [Tournament] {algo} 로드 실패 ({path}): {e}")
+                print(f"  [Tournament] {name} 로드 실패 ({path}): {e}")
                 continue
             self._entries.append({
                 "algo": algo,
+                "name": name,
                 "path": path,
                 "agent": agent,
                 "shop": Shop(target_money=target_money, day_limit=day_limit),
@@ -90,7 +92,7 @@ class TournamentMode(BaseMode):
         n = len(self._entries)
         print(f"\n  [Tournament] 참가자 {n}명:")
         for i, e in enumerate(self._entries):
-            print(f"    {i+1}. {e['algo']} → {e['path']}")
+            print(f"    {i+1}. {e['name']} ({e['algo']}) → {e['path']}")
 
         # ── 에이전트 기본 정책: 확률적(stochastic) ──
         for entry in self._entries:
@@ -206,7 +208,7 @@ class TournamentMode(BaseMode):
             color = self._participant_color(idx)
             shop = entry["shop"]
             stars = shop.shop_rating * 5.0
-            lbl_text = (f"[{entry['algo']}]  ${shop.money}"
+            lbl_text = (f"[{entry['name']}]  ${shop.money}"
                         f"(${shop.net_profit})  {stars:.1f}")
             label = font_lbl.render(lbl_text, True, color)
             lbl_bg = pygame.Surface(
@@ -249,7 +251,7 @@ class TournamentMode(BaseMode):
                 row = idx // self._cols
                 ox = col * (self._panel_w + div)
                 oy = row * (self._panel_h + div)
-                rank = self._get_rank(entry["algo"])
+                rank = self._get_rank(entry["name"])
                 extra = f"#{rank}" if rank else ""
                 self._renderers[idx].draw_game_over(
                     surf, entry["shop"],
@@ -284,9 +286,9 @@ class TournamentMode(BaseMode):
         # Headers
         hx = 10
         hy = y_start + 35
-        headers = ["순위", "알고리즘", "스코어", "수익($)", "평점",
+        headers = ["순위", "참가자", "스코어", "수익($)", "평점",
                     "서빙", "이탈", "상태"]
-        col_widths = [50, 120, 100, 100, 80, 60, 60, 80]
+        col_widths = [50, 180, 100, 100, 80, 60, 60, 80]
         for header, cw in zip(headers, col_widths):
             h_surf = font_sm.render(header, True, (160, 180, 200))
             dst.blit(h_surf, (hx, hy))
@@ -299,6 +301,7 @@ class TournamentMode(BaseMode):
             scored.append({
                 "idx": idx,
                 "algo": entry["algo"],
+                "name": entry["name"],
                 "score": shop.final_score,
                 "money": shop.money,
                 "net_profit": shop.net_profit,
@@ -322,7 +325,7 @@ class TournamentMode(BaseMode):
 
             values = [
                 f"#{rank}",
-                s["algo"],
+                s["name"],
                 f"{s['score']:,.0f}",
                 f"${s['net_profit']:,}",
                 f"{s['rating']:.1f}★",
@@ -340,18 +343,18 @@ class TournamentMode(BaseMode):
         self._rankings = []
         for entry in self._entries:
             self._rankings.append({
-                "algo": entry["algo"],
+                "name": entry["name"],
                 "score": entry["shop"].final_score,
                 "won": entry["shop"].won,
             })
         self._rankings.sort(key=lambda x: x["score"], reverse=True)
         print("\n  ╔══════════════════════════════════════╗")
-        print("  ║      🏆 토너먼트 최종 결과 🏆        ║")
+        print("  ║      토너먼트 최종 결과              ║")
         print("  ╠══════════════════════════════════════╣")
         for i, r in enumerate(self._rankings, 1):
-            medal = {1: "🥇", 2: "🥈", 3: "🥉"}.get(i, "  ")
-            won_str = " ★승리" if r["won"] else ""
-            print(f"  ║ {medal} #{i}  {r['algo']:<12s}"
+            medal = {1: "1st", 2: "2nd", 3: "3rd"}.get(i, f"{i}th")
+            won_str = " WIN" if r["won"] else ""
+            print(f"  ║ {medal} #{i}  {r['name']:<20s}"
                   f"  스코어: {r['score']:>8,.0f}{won_str}")
         print("  ╚══════════════════════════════════════╝")
 
@@ -399,7 +402,7 @@ class TournamentMode(BaseMode):
             medal = medals.get(i, f"{i}th")
             won_str = "  (WIN)" if r["won"] else ""
             txt = font_row.render(
-                f"  {medal}   {r['algo']:<14s}   "
+                f"  {medal}   {r['name']:<20s}   "
                 f"Score: {r['score']:>10,.0f}{won_str}",
                 True, color)
             surface.blit(txt, (px + 20, ry))
@@ -410,9 +413,9 @@ class TournamentMode(BaseMode):
         surface.blit(hint, hint.get_rect(
             centerx=px + panel_w // 2, bottom=py + panel_h - 10))
 
-    def _get_rank(self, algo: str) -> int | None:
+    def _get_rank(self, name: str) -> int | None:
         for i, r in enumerate(self._rankings, 1):
-            if r["algo"] == algo:
+            if r["name"] == name:
                 return i
         return None
 
