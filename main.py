@@ -120,6 +120,9 @@ def main():
         "--model", type=str, default=None,
         help="Path to a trained model")
     parser.add_argument(
+        "--participants", nargs="*", default=None,
+        help="Tournament participant model paths")
+    parser.add_argument(
         "--algo", type=str, default=None,
         help="Algorithm name for watch mode (PPO, DQN, A3C, SAC, etc.)")
     parser.add_argument(
@@ -190,6 +193,7 @@ def main():
     elif args.mode == "tournament":
         from modes.tournament_mode import TournamentMode
         game = TournamentMode(
+            participants=args.participants,
             target_money=args.target_money,
             day_limit=args.day_limit,
             speed_multiplier=args.speed,

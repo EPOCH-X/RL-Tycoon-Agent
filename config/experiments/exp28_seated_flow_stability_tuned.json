@@ -1,0 +1,73 @@
+{
+  "_comment": "exp28_seated_flow_stability_tuned: exp27의 seated-flow 관측과 trait/rating diagnostics는 유지하되, service-chain reward 강도와 학습 강도를 낮춰 후반 붕괴를 줄이는 안정화 실험.",
+
+  "algorithm": "MaskablePPO",
+  "policy": "MlpPolicy",
+
+  "training": {
+    "total_timesteps": 12000000,
+    "n_envs": 8,
+    "seed": 42,
+    "eval_freq": 10000
+  },
+
+  "hyperparameters": {
+    "learning_rate": 0.0002,
+    "n_steps": 2048,
+    "batch_size": 64,
+    "n_epochs": 10,
+    "gamma": 0.99,
+    "gae_lambda": 0.95,
+    "clip_range": 0.2,
+    "ent_coef": 0.005,
+    "vf_coef": 0.5,
+    "max_grad_norm": 0.5
+  },
+
+  "network": {
+    "net_arch": [128, 128],
+    "activation_fn": "tanh"
+  },
+
+  "reward_shaping": {
+    "_comment": "exp27의 seated-flow 아이디어는 유지하되, reward 강도는 exp26에 더 가깝게 낮춰 queue 희생과 후반 붕괴를 줄인다.",
+    "take_order": 4.0,
+    "serve_food": 17.5,
+    "submit_kitchen": 6.0,
+    "pickup_food": 6.0,
+    "pickup_drink": 3.0,
+    "serve_drink": 6.0,
+    "customer_payment": 0.01,
+    "lost_customer": -90.0,
+    "wrong_table": -8.0,
+    "buy_upgrade": 0.0,
+    "no_upgrade": 0.0,
+    "win": 220.0,
+    "trash": -1.0,
+    "trash_orphan": 0.0,
+    "orphan_cleared": 0.5,
+    "stale_carry_cleared": 1.5,
+    "customer_waiting": -0.2,
+    "waiting_customer_seated": 2.5,
+    "waiting_customer_left": -16.0,
+    "blocked_move": -0.05,
+    "idle_penalty": -0.03,
+    "time_penalty": -0.003,
+    "food_unlock": 0.0,
+    "game_end": 0.004,
+    "net_profit_delta": 0.0,
+    "rating_delta": 2.5,
+    "final_score_delta": 0.03
+  },
+
+  "game_overrides": {
+    "_comment": "기본 게임의 30일 플레이 기준으로 평가한다.",
+    "target_money": 1500,
+    "day_limit": 30
+  },
+
+  "env_options": {
+    "_comment": "개별 업그레이드 선택만 학습하도록 기존 auto-buy shortcut은 차단한다.",
+    "disable_auto_buy_action": true
+  }
+}

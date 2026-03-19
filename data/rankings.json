@@ -206,5 +206,18 @@
     "final_score": 27349.2,
     "won": false,
     "timestamp": 1773637087
+  },
+  {
+    "player_name": "AI",
+    "money": 14355,
+    "net_profit": 28859,
+    "day_limit": 30,
+    "customers_served": 520,
+    "customers_lost": 16,
+    "shop_rating": 0.6986,
+    "shop_rating_stars": 3.5,
+    "final_score": 38959.7,
+    "won": true,
+    "timestamp": 1773891735
   }
 ]

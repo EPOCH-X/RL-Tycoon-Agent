@@ -7,10 +7,47 @@ import os
 
 from sb3_contrib import MaskablePPO
 from sb3_contrib.common.maskable.callbacks import MaskableEvalCallback
+from stable_baselines3.common.callbacks import BaseCallback, CallbackList
 from stable_baselines3.common.vec_env import DummyVecEnv, SubprocVecEnv
 
 from ai.gym_env import TycoonEnv
 from config.settings import load_json_config
+
+
+class EpisodeSummaryTensorboardCallback(BaseCallback):
+    """Write env episode summary stats to TensorBoard when episodes finish."""
+
+    SUMMARY_KEYS = {
+        "customers_served": "custom/served",
+        "customers_lost": "custom/lost",
+        "shop_rating": "custom/shop_rating",
+        "final_score": "custom/final_score",
+        "queue_leave_ratio": "custom/queue_leave_ratio",
+        "angry_leave_ratio": "custom/angry_leave_ratio",
+        "fast_service_ratio": "custom/fast_service_ratio",
+        "slow_service_ratio": "custom/slow_service_ratio",
+        "avg_served_satisfaction": "custom/avg_served_satisfaction",
+    }
+
+    def _on_step(self) -> bool:
+        infos = self.locals.get("infos", [])
+        if not infos:
+            return True
+
+        for info in infos:
+            if not isinstance(info, dict):
+                continue
+
+            summary = info.get("episode_summary")
+            if not isinstance(summary, dict):
+                continue
+
+            for source_key, tb_key in self.SUMMARY_KEYS.items():
+                value = summary.get(source_key)
+                if value is not None:
+                    self.logger.record(tb_key, float(value))
+
+        return True
 
 
 def _tensorboard_log_dir(save_path: str) -> str | None:
@@ -177,8 +214,10 @@ def train(args):
         eval_freq=eval_freq,
         deterministic=True,
     )
+    tb_summary_cb = EpisodeSummaryTensorboardCallback()
+    callbacks = CallbackList([eval_cb, tb_summary_cb])
 
-    model.learn(total_timesteps=timesteps, callback=eval_cb)
+    model.learn(total_timesteps=timesteps, callback=callbacks)
     model.save(os.path.join(save_path, "final_model"))
 
     train_env.close()

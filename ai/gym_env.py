@@ -74,6 +74,7 @@ def _obs_size(shop: Shop) -> int:
         + 8
         + 25
         + 10
+        + 5
     )
 
 
@@ -224,6 +225,36 @@ def build_observation(shop: Shop) -> np.ndarray:
     obs[idx + 7] = 0.0 if table_cost is None else min(1.0, shop.money / max(1, table_cost))
     obs[idx + 8] = 0.0 if chef_cost is None else min(1.0, shop.money / max(1, chef_cost))
     obs[idx + 9] = 0.0 if kitchen_cost is None else min(1.0, shop.money / max(1, kitchen_cost))
+    idx += 10
+
+    seated_total = max(1, len(shop.tables))
+    waiting_to_order = 0
+    order_taken = 0
+    eating = 0
+    carrying_target = 0.0
+    lowest_patience = 1.0
+    for table in shop.tables:
+        cust = table.customer
+        if cust is None:
+            continue
+        if cust.state == CustomerState.WAITING_TO_ORDER:
+            waiting_to_order += 1
+        elif cust.state == CustomerState.ORDER_TAKEN:
+            order_taken += 1
+        elif cust.state == CustomerState.EATING:
+            eating += 1
+        lowest_patience = min(lowest_patience, cust.patience_ratio)
+    if shop.player.carrying:
+        target_ids = {
+            item.get("table_id") for item in shop.player.carrying
+            if item.get("table_id") is not None
+        }
+        carrying_target = 1.0 if target_ids else 0.0
+    obs[idx] = waiting_to_order / seated_total
+    obs[idx + 1] = order_taken / seated_total
+    obs[idx + 2] = eating / seated_total
+    obs[idx + 3] = carrying_target
+    obs[idx + 4] = lowest_patience if lowest_patience < 1.0 else 0.0
 
     return obs
 

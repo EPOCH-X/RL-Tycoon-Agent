@@ -18,6 +18,7 @@ from config.settings import (
     VERSUS_DIVIDER_WIDTH, VERSUS_DIVIDER_COLOR,
 )
 from modes.base_mode import BaseMode
+from modes.model_runtime import load_model_runtime_options
 from core.shop import Shop
 from rendering.asset_manager import AssetManager
 from rendering.renderer import Renderer
@@ -39,6 +40,19 @@ class TournamentMode(BaseMode):
     """
 
     MAX_PARTICIPANTS = 4
+
+    @staticmethod
+    def _normalize_participants(participants: list[dict | str]) -> list[dict]:
+        normalized: list[dict] = []
+        for entry in participants:
+            if isinstance(entry, str):
+                normalized.append({
+                    "algo": os.path.splitext(os.path.basename(entry))[0],
+                    "path": entry,
+                })
+            else:
+                normalized.append(entry)
+        return normalized
 
     def __init__(self, *, participants: list[dict] | None = None,
                  target_money=None, day_limit=None,
@@ -63,6 +77,8 @@ class TournamentMode(BaseMode):
                 "  python -m algorithms.train_launcher --algo PPO --timesteps 100000"
             )
 
+        participants = self._normalize_participants(participants)
+
         # Limit to 4
         participants = participants[:self.MAX_PARTICIPANTS]
         n = len(participants)
@@ -72,8 +88,11 @@ class TournamentMode(BaseMode):
         for entry in participants:
             algo = entry.get("algo", "Unknown")
             path = entry.get("path", "")
+            game_overrides, env_options = load_model_runtime_options(path)
+            shop_target_money = target_money if target_money is not None else game_overrides.get("target_money")
+            shop_day_limit = day_limit if day_limit is not None else game_overrides.get("day_limit")
             try:
-                agent = load_agent(path, algo_name=algo)
+                agent = load_agent(path, algo_name=None)
             except Exception as e:
                 print(f"  [Tournament] {algo} 로드 실패 ({path}): {e}")
                 continue
@@ -81,7 +100,11 @@ class TournamentMode(BaseMode):
                 "algo": algo,
                 "path": path,
                 "agent": agent,
-                "shop": Shop(target_money=target_money, day_limit=day_limit),
+                "shop": Shop(
+                    target_money=shop_target_money,
+                    day_limit=shop_day_limit,
+                    **env_options,
+                ),
             })
 
         if not self._entries:
@@ -157,7 +180,8 @@ class TournamentMode(BaseMode):
                     continue
                 any_running = True
                 obs = build_observation(shop)
-                action = entry["agent"].predict(obs)
+                action = entry["agent"].predict(
+                    obs, action_mask=shop.get_action_mask())
                 shop.step(action)
                 shop.auto_select_trait()
 
