@@ -645,6 +645,16 @@ class Shop:
         # 5) Employee AI
         self._update_employees(dt)
 
+        # 5b) Animation frame updates for all visible entities
+        self.player.update_animation(dt)
+        for emp in self.employees:
+            emp.update_animation(dt)
+        for table in self.tables:
+            if table.customer:
+                table.customer.update_animation(dt)
+        for cust in self.leaving_customers:
+            cust.update_animation(dt)
+
         # 6) 손님 스폰 (평점 기반 — 평점이 높을수록 손님이 많이 옴)
         self.customer_spawn_timer -= dt
         if self.customer_spawn_timer <= 0:
@@ -1382,13 +1392,13 @@ class Shop:
                 self, '_employee_speed_bonus', 0.0) + bonus
 
     def _push_entities_off_tile(self, tile_pos: tuple[int, int]):
-        """타일이 비이동 가능으로 변경될 때 해당 위치의 직원을 밀어냄."""
+        """타일이 비이동 가능으로 변경될 때 해당 위치의 직원과 플레이어를 밀어냄."""
         tx, ty = tile_pos
+        # Push employees
         for emp in self.employees:
             egx = int((emp.x + TILE_SIZE / 2) // TILE_SIZE)
             egy = int((emp.y + TILE_SIZE / 2) // TILE_SIZE)
             if (egx, egy) == (tx, ty):
-                # 인접한 walkable 타일로 이동
                 for dx, dy in ((0, 1), (0, -1), (-1, 0), (1, 0)):
                     nx, ny = tx + dx, ty + dy
                     if self._is_walkable_tile(nx, ny):
@@ -1396,10 +1406,20 @@ class Shop:
                         emp.x -= TILE_SIZE / 2
                         emp.y -= TILE_SIZE / 2
                         break
-                # 경로 재계산
                 emp.waypoints = []
                 if emp.state == Employee.MOVING:
                     self._set_employee_waypoints(emp)
+        # Push player
+        pgx = int((self.player.x + TILE_SIZE / 2) // TILE_SIZE)
+        pgy = int((self.player.y + TILE_SIZE / 2) // TILE_SIZE)
+        if (pgx, pgy) == (tx, ty):
+            for dx, dy in ((0, 1), (0, -1), (-1, 0), (1, 0)):
+                nx, ny = tx + dx, ty + dy
+                if self._is_walkable_tile(nx, ny):
+                    self.player.x, self.player.y = self._tile_center(nx, ny)
+                    self.player.x -= TILE_SIZE / 2
+                    self.player.y -= TILE_SIZE / 2
+                    break
 
     def _activate_next_table(self):
         if not self._purchasable_tables:
@@ -1409,6 +1429,7 @@ class Shop:
         self.tables.append(table)
         self._table_positions[(table.grid_x, table.grid_y)] = table
         self.layout[table.grid_y][table.grid_x] = 2
+        self._push_entities_off_tile((table.grid_x, table.grid_y))
 
     # ── 업그레이드 우선순위 (ROI 기반) ──
     # 값이 클수록 우선 구매. 게임 진행 단계에 따라 달라짐.

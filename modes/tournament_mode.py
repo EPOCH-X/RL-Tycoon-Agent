@@ -129,7 +129,9 @@ class TournamentMode(BaseMode):
         super().__init__(screen_w, screen_h, title="RL 타이쿤 – 토너먼트")
 
         self.am = AssetManager()
-        self._renderers = [Renderer(self.am) for _ in range(n)]
+        self.am.ensure_loaded()
+        self._renderers = [Renderer(self.am, background_key="sample3")
+                           for _ in range(n)]
 
         self.speed_multiplier = max(0.5, speed_multiplier)
         self._all_done = False

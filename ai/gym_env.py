@@ -12,7 +12,7 @@ import gymnasium
 from gymnasium import spaces
 
 from config.settings import (
-    TILE_SIZE, UI_HEIGHT, COLORS, ASSETS_DIR, NUM_ACTIONS,
+    TILE_SIZE, UI_HEIGHT, COLORS, NUM_ACTIONS,
     INTERACT_RANGE, ACTION_INTERACT, ACTION_NONE, ACTION_BUY_UPGRADE,
     load_json_config,
 )
@@ -560,7 +560,9 @@ class TycoonEnv(gymnasium.Env):
                 h = self.shop.grid_height * TILE_SIZE + UI_HEIGHT
                 self._screen = pygame.display.set_mode((w, h))
                 pygame.display.set_caption("RL 타이쿤 – 학습 중")
-                self._renderer = Renderer(AssetManager(ASSETS_DIR))
+                am = AssetManager()
+                am.ensure_loaded()
+                self._renderer = Renderer(am)
 
             self._screen.fill(COLORS["background"])
             self._renderer.draw(self._screen, self.shop)
@@ -581,7 +583,9 @@ class TycoonEnv(gymnasium.Env):
             if self._renderer is None:
                 from rendering.asset_manager import AssetManager
                 from rendering.renderer import Renderer
-                self._renderer = Renderer(AssetManager(ASSETS_DIR))
+                am = AssetManager()
+                am.ensure_loaded()
+                self._renderer = Renderer(am)
             self._renderer.draw(surf, self.shop)
             return np.transpose(
                 pygame.surfarray.array3d(surf), axes=(1, 0, 2))

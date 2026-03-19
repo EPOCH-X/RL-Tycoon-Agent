@@ -35,8 +35,9 @@ class VersusMode(BaseMode):
                          title="RL 타이쿤 – 대결 모드")
 
         self.am = AssetManager()
-        self.renderer_left = Renderer(self.am)
-        self.renderer_right = Renderer(self.am)
+        self.am.ensure_loaded()
+        self.renderer_left = Renderer(self.am, background_key="sample2")
+        self.renderer_right = Renderer(self.am, background_key="sample2")
 
         self.agent = load_agent(model_path)
 

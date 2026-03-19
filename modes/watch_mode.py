@@ -49,7 +49,8 @@ class WatchMode(BaseMode):
         super().__init__(w, h, title="RL 타이쿤 – 관전 모드")
 
         self.am = AssetManager()
-        self.renderer = Renderer(self.am)
+        self.am.ensure_loaded()
+        self.renderer = Renderer(self.am, background_key="sample3")
         self.ranking = RankingManager()
 
         self.agent = load_agent(model_path, algo_name=algo_name)

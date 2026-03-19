@@ -6,6 +6,7 @@ QR-DQN은 DQN의 분포적(distributional) 변형으로,
 보상 shaping이 다소 거친 환경에서 PPO 다음 비교군으로 쓰기 좋습니다.
 """
 
+import copy
 import os
 from typing import Any
 
@@ -16,6 +17,7 @@ from algorithms.base import BaseTrainer
 from algorithms.common import (
     load_algo_config, make_vec_env, build_policy_kwargs,
     save_run_config, get_sb3_device, KoreanEvalStopCallback,
+    TrainingDiagnosticsCallback,
     print_metric_reference,
 )
 
@@ -47,7 +49,12 @@ class QRDQNTrainer(BaseTrainer):
         self.save_path = save_path or self.save_path
 
         os.makedirs(self.save_path, exist_ok=True)
-        save_run_config(self.save_path, self.cfg)
+        effective_cfg = copy.deepcopy(self.cfg)
+        effective_training = effective_cfg.setdefault("training", {})
+        effective_training["total_timesteps"] = self._timesteps
+        effective_training["n_envs"] = 1
+        effective_training["seed"] = seed
+        save_run_config(self.save_path, effective_cfg)
 
         self.train_env = make_vec_env(1, seed, game_ov, reward_cfg, force_dummy=True)
         self.eval_env = make_vec_env(1, seed + 1000, game_ov, reward_cfg,
@@ -104,7 +111,12 @@ class QRDQNTrainer(BaseTrainer):
             print(f"  [QRDQN] 체크포인트 복원: {resume_path}")
 
         print_metric_reference()
-        self.model.learn(total_timesteps=self._timesteps, callback=self._eval_cb)
+        diag_cb = TrainingDiagnosticsCallback(
+            print_every_episodes=64,
+            min_timestep_gap=max(20000, self.cfg.get("training", {}).get("eval_freq", 5000) * 4),
+            verbose=1,
+        )
+        self.model.learn(total_timesteps=self._timesteps, callback=[self._eval_cb, diag_cb])
         self.save(os.path.join(self.save_path, "final_model"))
         self._cleanup()
         return {
