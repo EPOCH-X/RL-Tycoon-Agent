@@ -201,11 +201,20 @@ class TournamentMode(BaseMode):
             self._renderers[idx].draw(surf, entry["shop"],
                                       offset_x=ox, offset_y=oy)
 
-            # Label
-            font = self._get_font(16)
+            # Algorithm label (large, with background)
+            font_lbl = self._get_font(28)
             color = self._participant_color(idx)
-            label = font.render(f"{entry['algo']}", True, color)
-            surf.blit(label, (ox + 4, oy + 2))
+            shop = entry["shop"]
+            stars = shop.shop_rating * 5.0
+            lbl_text = (f"[{entry['algo']}]  ${shop.money}"
+                        f"(${shop.net_profit})  {stars:.1f}")
+            label = font_lbl.render(lbl_text, True, color)
+            lbl_bg = pygame.Surface(
+                (label.get_width() + 8, label.get_height() + 4),
+                pygame.SRCALPHA)
+            lbl_bg.fill((0, 0, 0, 160))
+            surf.blit(lbl_bg, (ox + 2, oy + 2))
+            surf.blit(label, (ox + 6, oy + 4))
 
         # ── Dividers ──
         total_w = self._cols * self._panel_w + (self._cols - 1) * div

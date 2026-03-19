@@ -78,6 +78,9 @@ class VersusMode(BaseMode):
             if model_path:
                 print(f"  [대결 모드] 자동 탐지 모델: {model_path} ({algo_name})")
         self.agent = load_agent(model_path, algo_name=algo_name)
+        if hasattr(self.agent, 'deterministic'):
+            self.agent.deterministic = False  # 확률적 정책 사용
+        self._algo_name = algo_name or "Random"
 
         self._interact_pressed = False
         self.winner: str | None = None
@@ -209,16 +212,26 @@ class VersusMode(BaseMode):
                           self._pip_w + 4, self._pip_h + 4), 2)
         self.screen.blit(pip_scaled, (pip_x, pip_y))
 
-        # PiP label
+        # PiP label + AI stats overlay
         available = [f.lower() for f in pygame.font.get_fonts()]
         kr_font = None
         for fn in ["malgungothic", "gulim", "dotum", "nanumgothic"]:
             if fn in available:
                 kr_font = fn
                 break
-        font_sm = pygame.font.SysFont(kr_font, 14)
-        lbl_a = font_sm.render("AI", True, (255, 150, 100))
-        self.screen.blit(lbl_a, (pip_x + 4, pip_y + 2))
+        font_pip = pygame.font.SysFont(kr_font, 18, bold=True)
+        ai_shop = self.ai_shop
+        stars = ai_shop.shop_rating * 5.0
+        info_text = (f"[{self._algo_name}]  ${ai_shop.money}"
+                     f"(${ai_shop.net_profit})  {stars:.1f}")
+        info_surf = font_pip.render(info_text, True, (255, 255, 255))
+        # Semi-transparent background bar
+        bar_w = self._pip_w
+        bar_h = info_surf.get_height() + 4
+        bar_surf = pygame.Surface((bar_w, bar_h), pygame.SRCALPHA)
+        bar_surf.fill((0, 0, 0, 160))
+        self.screen.blit(bar_surf, (pip_x, pip_y))
+        self.screen.blit(info_surf, (pip_x + 4, pip_y + 2))
 
         # Game-over overlays
         if self._game_over():
