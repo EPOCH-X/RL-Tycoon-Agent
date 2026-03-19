@@ -17,6 +17,37 @@ from rendering.renderer import Renderer
 from ai.agent import load_agent
 
 
+def _auto_find_best_model() -> tuple[str | None, str | None]:
+    """models/ 디렉토리에서 best_model을 자동 탐색합니다.
+    Returns (model_path, algo_name) or (None, None).
+    """
+    import os, json
+    from ai.agent import _detect_algo_from_path
+    models_dir = "models"
+    if not os.path.isdir(models_dir):
+        return None, None
+    # Prefer best_model.zip, then best_model.pt
+    candidates = []
+    for root, _dirs, files in os.walk(models_dir):
+        for f in files:
+            if f == "best_model.zip":
+                candidates.append(os.path.join(root, f))
+            elif f == "best_model.pt":
+                candidates.append(os.path.join(root, f[:-3]))
+    if not candidates:
+        return None, None
+    # Pick the first one found
+    path = candidates[0]
+    algo = _detect_algo_from_path(path)
+    # Also check config
+    cfg_path = os.path.join(os.path.dirname(path), "train_config_used.json")
+    if os.path.isfile(cfg_path):
+        with open(cfg_path, encoding="utf-8") as fp:
+            cfg = json.load(fp)
+        algo = cfg.get("algorithm", algo) or algo
+    return path, algo
+
+
 class VersusMode(BaseMode):
 
     def __init__(self, *, model_path=None,
@@ -29,7 +60,8 @@ class VersusMode(BaseMode):
         self.map_w = self.human_shop.grid_width * TILE_SIZE
         self.map_h = self.human_shop.grid_height * TILE_SIZE + UI_HEIGHT
 
-        screen_w = self.map_w * 2 + VERSUS_DIVIDER_WIDTH
+        # Single-panel screen: human at full size, AI as PiP overlay
+        screen_w = self.map_w
         screen_h = self.map_h
         super().__init__(screen_w, screen_h,
                          title="RL 타이쿤 – 대결 모드")
@@ -39,10 +71,22 @@ class VersusMode(BaseMode):
         self.renderer_left = Renderer(self.am, background_key="sample2")
         self.renderer_right = Renderer(self.am, background_key="sample2")
 
-        self.agent = load_agent(model_path)
+        # Auto-find model if not specified
+        algo_name = None
+        if model_path is None:
+            model_path, algo_name = _auto_find_best_model()
+            if model_path:
+                print(f"  [대결 모드] 자동 탐지 모델: {model_path} ({algo_name})")
+        self.agent = load_agent(model_path, algo_name=algo_name)
 
         self._interact_pressed = False
         self.winner: str | None = None
+
+        # PiP settings for AI view
+        self._pip_scale = 0.25
+        self._pip_w = int(self.map_w * self._pip_scale)
+        self._pip_h = int(self.map_h * self._pip_scale)
+        self._pip_surface = pygame.Surface((self.map_w, self.map_h))
 
     # ── events ───────────────────────────────────
     def handle_events(self):
@@ -145,42 +189,42 @@ class VersusMode(BaseMode):
     def render(self):
         self.screen.fill(COLORS["background"])
 
-        # Left half – human
+        # Full-size human view
         self.renderer_left.draw(self.screen, self.human_shop,
                                 offset_x=0, offset_y=0)
-        # Divider
-        dv_x = self.map_w
-        pygame.draw.rect(self.screen, VERSUS_DIVIDER_COLOR,
-                         (dv_x, 0, VERSUS_DIVIDER_WIDTH, self.map_h))
 
-        # Right half – AI
-        right_ox = self.map_w + VERSUS_DIVIDER_WIDTH
-        self.renderer_right.draw(self.screen, self.ai_shop,
-                                 offset_x=right_ox, offset_y=0)
+        # PiP: render AI to off-screen surface, then scale down
+        self._pip_surface.fill(COLORS["background"])
+        self.renderer_right.draw(self._pip_surface, self.ai_shop,
+                                 offset_x=0, offset_y=0)
+        pip_scaled = pygame.transform.smoothscale(
+            self._pip_surface, (self._pip_w, self._pip_h))
 
-        # Labels
+        # Position PiP: bottom-right, above UI area
+        pip_x = self.map_w - self._pip_w - 6
+        pip_y = self.map_h - UI_HEIGHT - self._pip_h - 6
+        # Border
+        pygame.draw.rect(self.screen, (200, 200, 200),
+                         (pip_x - 2, pip_y - 2,
+                          self._pip_w + 4, self._pip_h + 4), 2)
+        self.screen.blit(pip_scaled, (pip_x, pip_y))
+
+        # PiP label
         available = [f.lower() for f in pygame.font.get_fonts()]
         kr_font = None
         for fn in ["malgungothic", "gulim", "dotum", "nanumgothic"]:
             if fn in available:
                 kr_font = fn
                 break
-        font = pygame.font.SysFont(kr_font, 20)
-        lbl_h = font.render("플레이어", True, (100, 200, 255))
-        self.screen.blit(lbl_h, (self.map_w // 2
-                                 - lbl_h.get_width() // 2, 2))
-        lbl_a = font.render("AI", True, (255, 150, 100))
-        self.screen.blit(lbl_a, (right_ox + self.map_w // 2
-                                 - lbl_a.get_width() // 2, 2))
+        font_sm = pygame.font.SysFont(kr_font, 14)
+        lbl_a = font_sm.render("AI", True, (255, 150, 100))
+        self.screen.blit(lbl_a, (pip_x + 4, pip_y + 2))
 
         # Game-over overlays
         if self._game_over():
             extra = self._winner_text()
             self.renderer_left.draw_game_over(
                 self.screen, self.human_shop, extra_text=extra)
-            self.renderer_right.draw_game_over(
-                self.screen, self.ai_shop,
-                offset_x=right_ox, extra_text=extra)
 
         pygame.display.flip()
 

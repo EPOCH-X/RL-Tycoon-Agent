@@ -67,6 +67,7 @@ class AssetManager:
         self.tile_table: pygame.Surface | None = None
         self.tile_chair: pygame.Surface | None = None
         self.tile_bar: pygame.Surface | None = None
+        self.tile_bar_wide: pygame.Surface | None = None   # 128×64 for hired bartender
         self.tile_trash: pygame.Surface | None = None
         self.tile_kitchen: pygame.Surface | None = None       # 주방.png
         self.tile_kitchen_wall1: pygame.Surface | None = None  # 주방벽면1
@@ -148,6 +149,10 @@ class AssetManager:
             p = os.path.join(d, fname)
             if os.path.isfile(p):
                 setattr(self, f"tile_{attr}", _load_img(p))
+        # Wide bar image (128×64) for hired bartender spanning 2 tiles
+        bar_path = os.path.join(d, "bar.png")
+        if os.path.isfile(bar_path):
+            self.tile_bar_wide = _load_img(bar_path, (TILE_SIZE * 2, TILE_SIZE))
 
     def _load_backgrounds(self):
         d = os.path.join(self.images_dir, "background_sample")

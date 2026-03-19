@@ -86,10 +86,18 @@ class AlgorithmAgent:
     """
 
     def __init__(self, algo_name: str, model_path: str):
+        import json
         from algorithms.registry import get_algorithm
         TrainerClass = get_algorithm(algo_name)
         self.trainer = TrainerClass()
-        self.trainer.build()
+        # 저장된 학습 설정을 로드하여 네트워크 구조를 정확히 재현
+        model_dir = os.path.dirname(model_path) or "."
+        saved_cfg_path = os.path.join(model_dir, "train_config_used.json")
+        cfg = None
+        if os.path.isfile(saved_cfg_path):
+            with open(saved_cfg_path, encoding="utf-8") as f:
+                cfg = json.load(f)
+        self.trainer.build(cfg=cfg)
         self.trainer.load(model_path)
         self.deterministic = True
 
@@ -154,13 +162,13 @@ def load_agent(model_path: str | None = None,
     if clean_path.endswith(".pt"):
         clean_path = clean_path[:-3]
 
+    # .zip 파일은 항상 SB3(PPO)로 로드 (CrossPlay 등도 SB3 기반)
+    if model_path.endswith(".zip"):
+        return TrainedAgent(model_path)
+
     if algo_name and algo_name not in ("PPO",):
         # Custom trainer (A3C, SAC, MARL, ModelBased 등)
         return AlgorithmAgent(algo_name, clean_path)
-
-    if algo_name == "PPO" or model_path.endswith(".zip"):
-        # SB3 PPO
-        return TrainedAgent(model_path)
 
     # 최후 시도: SB3 로딩, 실패 시 .pt로 재시도
     try:

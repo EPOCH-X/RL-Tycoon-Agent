@@ -10,19 +10,19 @@
     "patience": 100
   },
   "hyperparameters": {
-    "learning_rate": 0.0001,
+    "learning_rate": 6e-5,
     "buffer_size": 200000,
-    "learning_starts": 5000,
+    "learning_starts": 10000,
     "batch_size": 128,
     "gamma": 0.99,
     "tau": 1.0,
-    "target_update_interval": 1000,
+    "target_update_interval": 2500,
     "train_freq": 4,
     "gradient_steps": 1,
-    "exploration_fraction": 0.3,
+    "exploration_fraction": 0.5,
     "exploration_initial_eps": 1.0,
-    "exploration_final_eps": 0.02,
-    "max_grad_norm": 10.0
+    "exploration_final_eps": 0.03,
+    "max_grad_norm": 5.0
   },
   "network": {
     "net_arch": [512, 256],
@@ -42,7 +42,7 @@
     "trash_orphan": 1.0,
     "orphan_cleared": 0.0,
     "blocked_move": -0.2,
-    "idle_penalty": -1.0,
+    "idle_penalty": -0.3,
     "time_penalty": -0.02,
     "upgrade_available": 0.0,
     "buy_upgrade": 5.0,
@@ -54,8 +54,8 @@
     "win": 200.0,
     "game_end": 0.01,
     "net_profit_delta": 0.2,
-    "rating_delta": 10.0,
-    "final_score_delta": 0.05
+    "rating_delta": 3.0,
+    "final_score_delta": 0.03
   },
   "game_overrides": {
     "target_money": null,

@@ -119,8 +119,8 @@ class TournamentMode(BaseMode):
         self._scoreboard_h = 160
         self._internal_h += self._scoreboard_h
 
-        # 축소 렌더링 (0.5×)
-        self._scale = 0.5
+        # 축소 렌더링 (0.45×)
+        self._scale = 0.45
         screen_w = int(self._internal_w * self._scale)
         screen_h = int(self._internal_h * self._scale)
         self._render_surface = pygame.Surface(
@@ -245,6 +245,8 @@ class TournamentMode(BaseMode):
                 self._renderers[idx].draw_game_over(
                     surf, entry["shop"],
                     offset_x=ox, offset_y=oy, extra_text=extra)
+            # Final results overlay
+            self._draw_final_results(surf)
 
         # 축소하여 화면에 표시
         scaled = pygame.transform.smoothscale(
@@ -267,7 +269,7 @@ class TournamentMode(BaseMode):
                          (0, y_start), (dst.get_width(), y_start), 2)
 
         # Title
-        title = font.render("📊 토너먼트 스코어보드", True, (255, 215, 0))
+        title = font.render("토너먼트 스코어보드", True, (255, 215, 0))
         dst.blit(title, (10, y_start + 8))
 
         # Headers
@@ -343,6 +345,61 @@ class TournamentMode(BaseMode):
             print(f"  ║ {medal} #{i}  {r['algo']:<12s}"
                   f"  스코어: {r['score']:>8,.0f}{won_str}")
         print("  ╚══════════════════════════════════════╝")
+
+    def _draw_final_results(self, surface: pygame.Surface):
+        """게임 종료 후 최종 순위를 화면 가운데 오버레이로 표시합니다."""
+        if not self._rankings:
+            return
+
+        sw, sh = surface.get_size()
+        panel_w = 500
+        row_h = 36
+        panel_h = 60 + len(self._rankings) * row_h + 40
+        px = (sw - panel_w) // 2
+        py = (sh - panel_h) // 2
+
+        # Dark overlay background
+        overlay = pygame.Surface((sw, sh), pygame.SRCALPHA)
+        overlay.fill((0, 0, 0, 160))
+        surface.blit(overlay, (0, 0))
+
+        # Panel background
+        pygame.draw.rect(surface, (30, 30, 55),
+                         (px, py, panel_w, panel_h), border_radius=12)
+        pygame.draw.rect(surface, (100, 130, 200),
+                         (px, py, panel_w, panel_h), width=2, border_radius=12)
+
+        font_title = self._get_font(22)
+        font_row = self._get_font(18)
+
+        # Title
+        title = font_title.render("토너먼트 최종 결과", True, (255, 215, 0))
+        surface.blit(title, title.get_rect(
+            centerx=px + panel_w // 2, top=py + 14))
+
+        # Ranking rows
+        medals = {1: "1st", 2: "2nd", 3: "3rd"}
+        medal_colors = {
+            1: (255, 215, 0),
+            2: (200, 200, 200),
+            3: (205, 127, 50),
+        }
+        for i, r in enumerate(self._rankings, 1):
+            ry = py + 55 + (i - 1) * row_h
+            color = medal_colors.get(i, (180, 180, 180))
+            medal = medals.get(i, f"{i}th")
+            won_str = "  (WIN)" if r["won"] else ""
+            txt = font_row.render(
+                f"  {medal}   {r['algo']:<14s}   "
+                f"Score: {r['score']:>10,.0f}{won_str}",
+                True, color)
+            surface.blit(txt, (px + 20, ry))
+
+        # Hint
+        hint = self._get_font(14).render(
+            "R: 재시작  |  ESC: 종료", True, (140, 140, 160))
+        surface.blit(hint, hint.get_rect(
+            centerx=px + panel_w // 2, bottom=py + panel_h - 10))
 
     def _get_rank(self, algo: str) -> int | None:
         for i, r in enumerate(self._rankings, 1):
