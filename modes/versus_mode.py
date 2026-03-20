@@ -4,6 +4,8 @@ Human side uses smooth per-frame movement (tick) + step_logic.
 AI side uses the standard step() (movement + logic combined).
 """
 
+import os
+import json
 import pygame
 from config.settings import (
     TILE_SIZE, UI_HEIGHT, COLORS,
@@ -17,41 +19,119 @@ from rendering.renderer import Renderer
 from ai.agent import load_agent
 
 
-def _auto_find_best_model() -> tuple[str | None, str | None]:
-    """models/ 디렉토리에서 best_model을 자동 탐색합니다.
-    Returns (model_path, algo_name) or (None, None).
-    """
-    import os, json
-    from ai.agent import _detect_algo_from_path
-    models_dir = "models"
-    if not os.path.isdir(models_dir):
-        return None, None
-    # Prefer best_model.zip, then best_model.pt
-    candidates = []
-    for root, _dirs, files in os.walk(models_dir):
-        for f in files:
-            if f == "best_model.zip":
-                candidates.append(os.path.join(root, f))
-            elif f == "best_model.pt":
-                candidates.append(os.path.join(root, f[:-3]))
-    if not candidates:
-        return None, None
-    # Pick the first one found
-    path = candidates[0]
-    algo = _detect_algo_from_path(path)
-    # Also check config
-    cfg_path = os.path.join(os.path.dirname(path), "train_config_used.json")
-    if os.path.isfile(cfg_path):
-        with open(cfg_path, encoding="utf-8") as fp:
-            cfg = json.load(fp)
-        algo = cfg.get("algorithm", algo) or algo
-    return path, algo
+def _find_all_available_models() -> list[dict]:
+    """models/ 디렉토리에서 사용 가능한 모델 목록을 반환합니다."""
+    from algorithms.cross_play.trainer import _find_trained_models
+    entries = _find_trained_models()
+    # Deduplicate by folder name
+    seen: dict[str, dict] = {}
+    for entry in entries:
+        name = entry.get("name", entry.get("algo", "Unknown"))
+        path = entry.get("path", "")
+        if name not in seen or "best" in path:
+            seen[name] = entry
+    return list(seen.values())
+
+
+def _show_model_selection(models: list[dict]) -> dict | None:
+    """Pygame 기반 모델 선택 UI. 선택된 모델 dict 반환, 취소 시 None."""
+    pygame.init()
+    WIDTH, HEIGHT = 520, max(300, 120 + len(models) * 60 + 40)
+    screen = pygame.display.set_mode((WIDTH, HEIGHT))
+    pygame.display.set_caption("대결 모드 – AI 모델 선택")
+
+    available = [f.lower() for f in pygame.font.get_fonts()]
+    kr_font = None
+    for fn in ["malgungothic", "gulim", "dotum", "nanumgothic"]:
+        if fn in available:
+            kr_font = fn
+            break
+
+    title_font = pygame.font.SysFont(kr_font, 28, bold=True)
+    btn_font = pygame.font.SysFont(kr_font, 20)
+    sub_font = pygame.font.SysFont(kr_font, 14)
+
+    BG = (30, 30, 50)
+    BTN_COLOR = (60, 80, 120)
+    BTN_HOVER = (80, 110, 170)
+    TEXT_COLOR = (255, 255, 255)
+    ACCENT = (255, 215, 0)
+
+    BTN_W, BTN_H = 440, 48
+    START_Y = 100
+    GAP = 12
+    buttons: list[dict] = []
+    for i, m in enumerate(models):
+        x = (WIDTH - BTN_W) // 2
+        y = START_Y + i * (BTN_H + GAP)
+        buttons.append({
+            "model": m,
+            "rect": pygame.Rect(x, y, BTN_W, BTN_H),
+        })
+
+    clock = pygame.time.Clock()
+    running = True
+    result = None
+
+    while running:
+        mouse_pos = pygame.mouse.get_pos()
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                running = False
+            if event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
+                running = False
+            if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                for btn in buttons:
+                    if btn["rect"].collidepoint(mouse_pos):
+                        result = btn["model"]
+                        running = False
+                        break
+
+        screen.fill(BG)
+        title = title_font.render("대결할 AI 모델 선택", True, ACCENT)
+        screen.blit(title, (WIDTH // 2 - title.get_width() // 2, 20))
+        hint = sub_font.render("클릭으로 선택  |  ESC: 취소", True, (140, 140, 160))
+        screen.blit(hint, (WIDTH // 2 - hint.get_width() // 2, 60))
+
+        for btn in buttons:
+            hovered = btn["rect"].collidepoint(mouse_pos)
+            color = BTN_HOVER if hovered else BTN_COLOR
+            pygame.draw.rect(screen, color, btn["rect"], border_radius=8)
+            pygame.draw.rect(screen, (100, 130, 180), btn["rect"],
+                             width=2, border_radius=8)
+            m = btn["model"]
+            label = f"{m.get('name', 'Unknown')}  ({m.get('algo', '?')})"
+            lbl = btn_font.render(label, True, TEXT_COLOR)
+            screen.blit(lbl, (btn["rect"].centerx - lbl.get_width() // 2,
+                              btn["rect"].centery - lbl.get_height() // 2))
+
+        pygame.display.flip()
+        clock.tick(30)
+
+    pygame.quit()
+    return result
 
 
 class VersusMode(BaseMode):
 
     def __init__(self, *, model_path=None,
                  target_money=None, day_limit=None):
+
+        # --model로 직접 지정되지 않으면 선택 UI 먼저 표시
+        algo_name = None
+        if model_path is None:
+            models = _find_all_available_models()
+            if models:
+                selected = _show_model_selection(models)
+                if selected is None:
+                    selected = models[0]
+                model_path = selected.get("path")
+                algo_name = selected.get("algo")
+                print(f"  [대결 모드] 선택 모델: {selected.get('name')} "
+                      f"({algo_name}) → {model_path}")
+            else:
+                print("  [대결 모드] 학습된 모델 없음 → 랜덤 에이전트")
+
         self.human_shop = Shop(target_money=target_money,
                                day_limit=day_limit)
         self.ai_shop = Shop(target_money=target_money,
@@ -60,7 +140,6 @@ class VersusMode(BaseMode):
         self.map_w = self.human_shop.grid_width * TILE_SIZE
         self.map_h = self.human_shop.grid_height * TILE_SIZE + UI_HEIGHT
 
-        # Single-panel screen: human at full size, AI as PiP overlay
         screen_w = self.map_w
         screen_h = self.map_h
         super().__init__(screen_w, screen_h,
@@ -68,23 +147,16 @@ class VersusMode(BaseMode):
 
         self.am = AssetManager()
         self.am.ensure_loaded()
-        self.renderer_left = Renderer(self.am, background_key="sample2")
-        self.renderer_right = Renderer(self.am, background_key="sample2")
+        self.renderer_left = Renderer(self.am, background_key="sample1")
+        self.renderer_right = Renderer(self.am, background_key="sample1")
 
-        # Auto-find model if not specified
-        algo_name = None
-        if model_path is None:
-            model_path, algo_name = _auto_find_best_model()
-            if model_path:
-                print(f"  [대결 모드] 자동 탐지 모델: {model_path} ({algo_name})")
         self.agent = load_agent(model_path, algo_name=algo_name)
         if hasattr(self.agent, 'deterministic'):
             self.agent.deterministic = False  # 확률적 정책 사용
         # 폴더명을 표시 이름으로 사용
         if model_path:
-            import os as _os
-            self._display_name = _os.path.basename(
-                _os.path.dirname(model_path))
+            self._display_name = os.path.basename(
+                os.path.dirname(model_path))
         else:
             self._display_name = "Random"
 
@@ -168,9 +240,6 @@ class VersusMode(BaseMode):
         obs = self._build_ai_obs()
         ai_action = self.agent.predict(obs)
         self.ai_shop.step(ai_action)
-
-        # AI auto-selects traits
-        self.ai_shop.auto_select_trait()
 
         # Sync time (both shops share the same clock)
         self.ai_shop.time_elapsed = self.human_shop.time_elapsed

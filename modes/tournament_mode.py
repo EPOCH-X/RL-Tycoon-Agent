@@ -55,7 +55,7 @@ class TournamentMode(BaseMode):
                 # Prefer best_model over final_model
                 if name not in seen_names or "best" in path:
                     seen_names[name] = entry
-            participants = list(seen_names.values())[:self.MAX_PARTICIPANTS]
+            participants = list(seen_names.values())
 
         if not participants:
             raise RuntimeError(
@@ -63,13 +63,11 @@ class TournamentMode(BaseMode):
                 "  python -m algorithms.train_launcher --algo PPO --timesteps 100000"
             )
 
-        # Limit to 4
-        participants = participants[:self.MAX_PARTICIPANTS]
-        n = len(participants)
-
-        # ── Agents & Shops ──
+        # ── Agents & Shops (로드 성공한 것만, 최대 4개) ──
         self._entries: list[dict] = []
         for entry in participants:
+            if len(self._entries) >= self.MAX_PARTICIPANTS:
+                break
             algo = entry.get("algo", "Unknown")
             name = entry.get("name", algo)
             path = entry.get("path", "")
@@ -132,7 +130,7 @@ class TournamentMode(BaseMode):
 
         self.am = AssetManager()
         self.am.ensure_loaded()
-        self._renderers = [Renderer(self.am, background_key="sample3")
+        self._renderers = [Renderer(self.am, background_key="sample1")
                            for _ in range(n)]
 
         self.speed_multiplier = max(0.5, speed_multiplier)
@@ -180,7 +178,6 @@ class TournamentMode(BaseMode):
                 obs = build_observation(shop)
                 action = entry["agent"].predict(obs)
                 shop.step(action)
-                shop.auto_select_trait()
 
             if not any_running:
                 self._all_done = True

@@ -25,7 +25,9 @@ from config.settings import (
     EMPLOYEE_SPEED, EMPLOYEE_ACTION_DELAY,
     MAX_WAITING_QUEUE, WAITING_PATIENCE,
     ACTION_UP, ACTION_DOWN, ACTION_LEFT, ACTION_RIGHT,
-    ACTION_INTERACT, ACTION_NONE, ACTION_BUY_UPGRADE,
+    ACTION_INTERACT, ACTION_NONE,
+    ACTION_TO_UPGRADE, UPGRADE_ACTION_MIN, UPGRADE_ACTION_MAX,
+    TRAIT_ACTION_MIN, TRAIT_ACTION_MAX,
     load_json_config,
 )
 from core.player import Player
@@ -558,11 +560,19 @@ class Shop:
                     ) -> list[tuple[str, float]]:
         events: list[tuple[str, float]] = list(extra_events) if extra_events else []
 
-        # 1) Interaction / upgrade
+        # 1) Interaction / upgrade / trait selection
         if action == ACTION_INTERACT:
             events.extend(self._interact())
-        elif action == ACTION_BUY_UPGRADE:
-            events.extend(self._auto_buy_upgrade())
+        elif UPGRADE_ACTION_MIN <= action <= UPGRADE_ACTION_MAX:
+            upgrade_id = ACTION_TO_UPGRADE.get(action)
+            if upgrade_id and self.buy_upgrade(upgrade_id):
+                events.append(("buy_upgrade", 1.0))
+            else:
+                events.append(("no_upgrade", 1.0))
+        elif TRAIT_ACTION_MIN <= action <= TRAIT_ACTION_MAX:
+            trait_idx = action - TRAIT_ACTION_MIN
+            if self.select_trait(trait_idx):
+                events.append(("select_trait", 1.0))
 
         # 2) Kitchen tick
         self.kitchen.update(dt, self.cook_speed_mult)
@@ -1820,6 +1830,51 @@ class Shop:
             self.patience_bonus += float(val)
         elif effect == "base_tip":
             self.base_tip_bonus += int(val)
+
+    # ═══════════════════════════════════════════════
+    #  Action mask (for MaskablePPO / guided exploration)
+    # ═══════════════════════════════════════════════
+    def get_action_mask(self) -> list[bool]:
+        """Return a boolean mask over NUM_ACTIONS: True = action is valid."""
+        from config.settings import NUM_ACTIONS
+        mask = [True] * NUM_ACTIONS
+
+        # Movement + interact + none are always valid
+        # (blocked_move penalty handles wall collisions)
+
+        # Upgrade actions: valid only if purchasable
+        for act, uid in ACTION_TO_UPGRADE.items():
+            upg = None
+            for u in self.upgrades_data:
+                if u["id"] == uid:
+                    upg = u
+                    break
+            if upg is None:
+                mask[act] = False
+                continue
+            level = self.upgrade_levels[uid]
+            if level >= upg["max_level"]:
+                mask[act] = False
+                continue
+            if upg["effect_type"] == "hire_chef" and self.num_chefs >= self.max_chefs:
+                mask[act] = False
+                continue
+            req = upg.get("unlock_profit", 0)
+            if self.net_profit < req:
+                mask[act] = False
+                continue
+            cost = (upg["cost_list"][level]
+                    if "cost_list" in upg and level < len(upg["cost_list"])
+                    else int(upg["base_cost"] * (upg["cost_multiplier"] ** level)))
+            if self.money < cost:
+                mask[act] = False
+
+        # Trait actions: valid only when trait selection is active
+        mask[TRAIT_ACTION_MIN] = self.trait_selection_active and len(self.trait_choices) > 0
+        mask[TRAIT_ACTION_MIN + 1] = self.trait_selection_active and len(self.trait_choices) > 1
+        mask[TRAIT_ACTION_MIN + 2] = self.trait_selection_active and len(self.trait_choices) > 2
+
+        return mask
 
     # ═══════════════════════════════════════════════
     #  Helpers

@@ -133,15 +133,26 @@
 
 게임에서 사용되는 액션 코드 (settings.py 정의):
 
-| 상수명               | 값  | 한글            | RL 에이전트 | 인간 플레이어 |
-| -------------------- | --- | --------------- | ----------- | ------------- |
-| `ACTION_UP`          | 0   | 위로 이동       | action=0    | ↑ / W         |
-| `ACTION_DOWN`        | 1   | 아래로 이동     | action=1    | ↓ / S         |
-| `ACTION_LEFT`        | 2   | 왼쪽 이동       | action=2    | ← / A         |
-| `ACTION_RIGHT`       | 3   | 오른쪽 이동     | action=3    | → / D         |
-| `ACTION_INTERACT`    | 4   | 상호작용        | action=4    | Space / Enter |
-| `ACTION_NONE`        | 5   | 대기            | action=5    | (키 안 누름)  |
-| `ACTION_BUY_UPGRADE` | 6   | 업그레이드 구매 | action=6    | U → 1~9       |
+| 상수명                      | 값  | 한글             | RL 에이전트 | 인간 플레이어 |
+| --------------------------- | --- | ---------------- | ----------- | ------------- |
+| `ACTION_UP`                 | 0   | 위로 이동        | action=0    | ↑ / W         |
+| `ACTION_DOWN`               | 1   | 아래로 이동      | action=1    | ↓ / S         |
+| `ACTION_LEFT`               | 2   | 왼쪽 이동        | action=2    | ← / A         |
+| `ACTION_RIGHT`              | 3   | 오른쪽 이동      | action=3    | → / D         |
+| `ACTION_INTERACT`           | 4   | 상호작용         | action=4    | Space / Enter |
+| `ACTION_NONE`               | 5   | 대기             | action=5    | (키 안 누름)  |
+| `ACTION_BUY_SPEED_SHOES`    | 6   | 스피드 신발 구매 | action=6    | -             |
+| `ACTION_BUY_KITCHEN_EXPAND` | 7   | 주방 확장 구매   | action=7    | -             |
+| `ACTION_BUY_HIRE_CHEF`      | 8   | 요리사 고용      | action=8    | -             |
+| `ACTION_BUY_COOK_SPEED`     | 9   | 조리 속도 업     | action=9    | -             |
+| `ACTION_BUY_TABLE`          | 10  | 테이블 추가      | action=10   | -             |
+| `ACTION_BUY_MARKETING`      | 11  | 마케팅 구매      | action=11   | -             |
+| `ACTION_BUY_WAITER`         | 12  | 웨이터 고용      | action=12   | -             |
+| `ACTION_BUY_BARTENDER`      | 13  | 바텐더 고용      | action=13   | -             |
+| `ACTION_BUY_EMPLOYEE_SPEED` | 14  | 직원 속도 업     | action=14   | -             |
+| `ACTION_SELECT_TRAIT_0`     | 15  | 특성 1번 선택    | action=15   | -             |
+| `ACTION_SELECT_TRAIT_1`     | 16  | 특성 2번 선택    | action=16   | -             |
+| `ACTION_SELECT_TRAIT_2`     | 17  | 특성 3번 선택    | action=17   | -             |
 
 ---
 

@@ -13,7 +13,10 @@ from gymnasium import spaces
 
 from config.settings import (
     TILE_SIZE, UI_HEIGHT, COLORS, NUM_ACTIONS,
-    INTERACT_RANGE, ACTION_INTERACT, ACTION_NONE, ACTION_BUY_UPGRADE,
+    INTERACT_RANGE, ACTION_INTERACT, ACTION_NONE,
+    UPGRADE_ACTION_MIN, UPGRADE_ACTION_MAX,
+    TRAIT_ACTION_MIN, TRAIT_ACTION_MAX,
+    ACTION_TO_UPGRADE,
     load_json_config,
 )
 from core.shop import Shop
@@ -35,6 +38,21 @@ _STATE_ENC = {
     CustomerState.ORDER_TAKEN:      0.50,
     CustomerState.EATING:           0.75,
 }
+
+# Trait ID → numeric encoding for observation
+_TRAIT_IDS: dict[str, int] = {
+    "gourmet": 1,
+    "master_chef": 2,
+    "charming": 3,
+    "efficient": 4,
+    "popular": 5,
+    "patient_service": 6,
+    "tip_jar": 7,
+}
+_NUM_TRAIT_TYPES = len(_TRAIT_IDS) + 1  # +1 for unknown
+
+# Number of upgrade types (for observation)
+_NUM_UPGRADES = 9
 
 
 def _norm_point(shop: Shop, x: float, y: float) -> tuple[float, float]:
@@ -146,6 +164,9 @@ def _obs_size(shop: Shop) -> int:
         + 3                          # waiting queue: count ratio, first patience ratio, queue_full
         + 8                          # money_ratio, day_ratio, time_ratio, shop_rating,
                                      # can_upgrade, net_profit_ratio, employee_count, bartender
+        + _NUM_UPGRADES * 3          # per-upgrade: level_ratio, affordable, unlocked
+        + 1                          # trait_selection_active
+        + 3 * 2                      # 3 trait choices × (trait_id_encoded, stacks_ratio)
     )
 
 
@@ -271,6 +292,32 @@ def build_observation(shop: Shop) -> np.ndarray:
     obs[idx + 5] = min(1.0, shop.net_profit / max(1, shop.target_money))
     obs[idx + 6] = len(shop.employees) / 4.0
     obs[idx + 7] = 1.0 if shop.bartender_hired else 0.0
+    idx += 8
+
+    # ── Per-upgrade details (9 upgrades × 3) ────────────
+    for upg in shop.upgrades_data:
+        uid = upg["id"]
+        level = shop.upgrade_levels.get(uid, 0)
+        max_lv = max(1, upg["max_level"])
+        obs[idx]     = level / max_lv                           # level ratio
+        cost = int(upg["base_cost"] * (upg["cost_multiplier"] ** level))
+        obs[idx + 1] = 1.0 if (level < max_lv and shop.money >= cost) else 0.0  # affordable
+        req = upg.get("unlock_net_profit", 0)
+        obs[idx + 2] = 1.0 if shop.net_profit >= req else 0.0  # unlocked
+        idx += 3
+
+    # ── Trait selection (1 + 3×2 = 7) ───────────────────
+    obs[idx] = 1.0 if shop.trait_selection_active else 0.0
+    idx += 1
+    choices = getattr(shop, "trait_choices", []) or []
+    for i in range(3):
+        if i < len(choices):
+            tid = choices[i].get("id", "")
+            obs[idx]     = _TRAIT_IDS.get(tid, 0) / _NUM_TRAIT_TYPES
+            ms = max(1, choices[i].get("max_stacks", 1))
+            cur = shop.traits.get(tid, 0)
+            obs[idx + 1] = cur / ms
+        idx += 2
 
     return obs
 
@@ -447,7 +494,6 @@ class TycoonEnv(gymnasium.Env):
         before_y = float(self.shop.player.y)
 
         events = self.shop.step(action)
-        self.shop.auto_select_trait()
 
         # ── time_penalty: 매 스텝 소량 비용 (긴박감 유도) ──
         events.append(("time_penalty", 1.0))
@@ -456,7 +502,7 @@ class TycoonEnv(gymnasium.Env):
             events.append(("idle_penalty", 1.0))
 
         # ── upgrade_available: 업그레이드 가능한데 안 살 때 매 스텝 페널티 ──
-        if action != ACTION_BUY_UPGRADE:
+        if not (UPGRADE_ACTION_MIN <= action <= UPGRADE_ACTION_MAX):
             shop = self.shop
             for upg in shop.upgrades_data:
                 uid = upg["id"]
