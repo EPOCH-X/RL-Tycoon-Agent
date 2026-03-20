@@ -32,7 +32,7 @@
   "reward_shaping": {
     "_comment": "보상 가중치. reward = weight × event_value. 팀원별로 자유롭게 조정하세요.",
     "take_order": 8.0,
-    "submit_kitchen": 5.0,
+    "submit_kitchen": 10.0,
     "pickup_food": 5.0,
     "serve_food": 15.0,
     "pickup_drink": 3.0,

@@ -209,6 +209,7 @@
   },
   {
     "player_name": "AI",
+<<<<<<< Updated upstream
     "money": 20119,
     "net_profit": 20119,
     "day_limit": 30,
@@ -232,5 +233,82 @@
     "final_score": 31800.4,
     "won": true,
     "timestamp": 1773651834
+=======
+    "money": 9,
+    "net_profit": 89,
+    "day_limit": 30,
+    "customers_served": 7,
+    "customers_lost": 138,
+    "shop_rating": 0.0,
+    "shop_rating_stars": 0.0,
+    "final_score": 89.0,
+    "won": false,
+    "timestamp": 1773888410
+  },
+  {
+    "player_name": "AI",
+    "money": 247,
+    "net_profit": 247,
+    "day_limit": 30,
+    "customers_served": 20,
+    "customers_lost": 130,
+    "shop_rating": 0.0,
+    "shop_rating_stars": 0.0,
+    "final_score": 247.0,
+    "won": false,
+    "timestamp": 1773890943
+  },
+  {
+    "player_name": "AI",
+    "money": 681,
+    "net_profit": 6426,
+    "day_limit": 30,
+    "customers_served": 197,
+    "customers_lost": 135,
+    "shop_rating": 0.6802,
+    "shop_rating_stars": 3.4,
+    "final_score": 8610.8,
+    "won": false,
+    "timestamp": 1773899745
+  },
+  {
+    "player_name": "AI",
+    "money": 801,
+    "net_profit": 13340,
+    "day_limit": 30,
+    "customers_served": 295,
+    "customers_lost": 96,
+    "shop_rating": 0.8057,
+    "shop_rating_stars": 4.0,
+    "final_score": 18676.0,
+    "won": false,
+    "timestamp": 1773904058
+  },
+  {
+    "player_name": "AI",
+    "money": 635,
+    "net_profit": 15254,
+    "day_limit": 30,
+    "customers_served": 299,
+    "customers_lost": 93,
+    "shop_rating": 0.7139,
+    "shop_rating_stars": 3.6,
+    "final_score": 20745.4,
+    "won": false,
+    "timestamp": 1773908522
+  },
+  {
+    "player_name": "AI",
+    "money": 554,
+    "net_profit": 9659,
+    "day_limit": 30,
+    "customers_served": 226,
+    "customers_lost": 93,
+    "shop_rating": 0.564,
+    "shop_rating_stars": 2.8,
+    "final_score": 12363.5,
+    "won": false,
+    "timestamp": 1773908815
+>>>>>>> Stashed changes
   }
 ]
