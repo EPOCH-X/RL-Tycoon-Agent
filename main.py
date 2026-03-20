@@ -140,6 +140,9 @@ def main():
         "--rule-controller", action="store_true",
         help="Enable rule-based live controller overrides for stale carry/upgrades")
     parser.add_argument(
+        "--stochastic", action="store_true",
+        help="Use stochastic policy sampling in ai mode instead of deterministic inference")
+    parser.add_argument(
         "--days", type=int, default=None, choices=[30, 60],
         help="Shorthand for --day-limit (30 or 60)")
 
@@ -173,6 +176,7 @@ def main():
             day_limit=args.day_limit,
             time_scale=args.speed,
             use_rule_controller=args.rule_controller,
+            stochastic=args.stochastic,
         )
     elif args.mode == "versus":
         from modes.versus_mode import VersusMode

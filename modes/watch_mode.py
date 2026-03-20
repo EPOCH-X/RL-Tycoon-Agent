@@ -71,7 +71,7 @@ class WatchMode(BaseMode):
 
         self.am = AssetManager()
         self.am.ensure_loaded()
-        self.renderer = Renderer(self.am, background_key="sample3")
+        self.renderer = Renderer(self.am, background_key="sample1")
         self.ranking = RankingManager()
 
         self.agent = load_agent(model_path, algo_name=algo_name)

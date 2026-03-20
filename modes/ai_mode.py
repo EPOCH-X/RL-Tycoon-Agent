@@ -18,7 +18,8 @@ class AIMode(BaseMode):
     def __init__(self, *, model_path=None,
                  target_money=None, day_limit=None,
                  time_scale: float = 1.0,
-                 use_rule_controller: bool = False):
+                 use_rule_controller: bool = False,
+                 stochastic: bool = False):
         game_overrides, env_options = load_model_runtime_options(model_path)
         if target_money is None:
             target_money = game_overrides.get("target_money")
@@ -38,6 +39,8 @@ class AIMode(BaseMode):
         self.am = AssetManager()
         self.renderer = Renderer(self.am)
         self.agent = load_agent(model_path)
+        if hasattr(self.agent, "deterministic"):
+            self.agent.deterministic = not stochastic
 
     def handle_events(self):
         for event in pygame.event.get():
