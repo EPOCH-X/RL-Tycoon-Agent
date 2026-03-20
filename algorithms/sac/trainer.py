@@ -188,7 +188,8 @@ class SACTrainer(BaseTrainer):
         envs = [make_env(i, self._seed + i, self._game_ov, self._reward_cfg)()
                 for i in range(n_envs)]
         eval_env = make_env(0, self._seed + 1000, self._game_ov, self._reward_cfg)()
-        early_stop = EarlyStopTracker(patience=50, min_delta=1.0, verbose=1)
+        early_stop = EarlyStopTracker(patience=50, min_delta=1.0, verbose=1,
+                          metric_name="mean_final_score")
 
         obs_all = []
         ep_reward_all = [0.0] * n_envs
@@ -196,11 +197,11 @@ class SACTrainer(BaseTrainer):
             o, _ = env.reset()
             obs_all.append(o)
         episode_rewards = []
-        best_eval = float("-inf")
+        best_score = float("-inf")
 
         # TensorBoard + 평가 기록
         writer = SummaryWriter(os.path.join(self.save_path, "tb_logs"))
-        eval_timesteps, eval_results = [], []
+        eval_timesteps, eval_results, eval_final_scores = [], [], []
         loss_acc = {"q_loss": [], "policy_loss": [], "alpha_loss": [], "alpha": [], "entropy": []}
 
         for step in range(1, self._timesteps + 1):
@@ -232,6 +233,7 @@ class SACTrainer(BaseTrainer):
                     writer.add_scalar("rollout/lost", summary.get("customers_lost", 0), step)
                     writer.add_scalar("rollout/profit", summary.get("net_profit", 0), step)
                     writer.add_scalar("rollout/rating", summary.get("shop_rating", 0), step)
+                    writer.add_scalar("rollout/final_score", summary.get("final_score", 0), step)
                 obs_all[env_idx], _ = env.reset()
                 ep_reward_all[env_idx] = 0.0
 
@@ -249,15 +251,17 @@ class SACTrainer(BaseTrainer):
 
             # Eval
             if step % eval_freq == 0:
-                eval_r = self._evaluate(eval_env, n_episodes=5)
-                print(f"  [SAC] 평가(Eval) 스텝 {step}: 평균보상(mean_reward)={eval_r:.1f}")
+                eval_r, eval_score = self._evaluate(eval_env, n_episodes=5)
+                print(f"  [SAC] 평가(Eval) 스텝 {step}: 평균보상(mean_reward)={eval_r:.1f}, 평균최종점수(mean_final_score)={eval_score:.1f}")
                 writer.add_scalar("eval/mean_reward", eval_r, step)
+                writer.add_scalar("eval/mean_final_score", eval_score, step)
                 eval_timesteps.append(step)
                 eval_results.append(eval_r)
-                if eval_r > best_eval:
-                    best_eval = eval_r
+                eval_final_scores.append(eval_score)
+                if eval_score > best_score:
+                    best_score = eval_score
                     self.save(os.path.join(self.save_path, "best_model"))
-                if not early_stop.check(eval_r):
+                if not early_stop.check(eval_score):
                     print(f"  [SAC] 조기 종료 (Early stopped), 스텝: {step}")
                     break
 
@@ -266,7 +270,8 @@ class SACTrainer(BaseTrainer):
         os.makedirs(eval_log_dir, exist_ok=True)
         np.savez(os.path.join(eval_log_dir, "evaluations.npz"),
                  timesteps=np.array(eval_timesteps),
-                 results=np.array(eval_results))
+                 results=np.array(eval_results),
+                 final_scores=np.array(eval_final_scores))
         writer.close()
         for env in envs:
             env.close()
@@ -340,18 +345,24 @@ class SACTrainer(BaseTrainer):
             "entropy": -(probs * log_probs).sum(dim=-1).mean().item(),
         }
 
-    def _evaluate(self, env, n_episodes: int = 5) -> float:
+    def _evaluate(self, env, n_episodes: int = 5) -> tuple[float, float]:
         total = 0.0
+        total_score = 0.0
         for _ in range(n_episodes):
             obs, _ = env.reset()
             done = False
+            ep_info = {}
             while not done:
                 obs_t = torch.FloatTensor(obs).unsqueeze(0).to(self.device)
-                action = self.policy.get_action(obs_t, deterministic=True).item()
-                obs, r, terminated, truncated, _ = env.step(action)
+                action = self.policy.get_action(obs_t, deterministic=False).item()
+                obs, r, terminated, truncated, info = env.step(action)
                 total += r
                 done = terminated or truncated
-        return total / n_episodes
+                if done:
+                    ep_info = info
+            summary = ep_info.get("episode_summary", {})
+            total_score += summary.get("final_score", 0.0)
+        return total / n_episodes, total_score / n_episodes
 
     def save(self, path: str) -> None:
         torch.save({

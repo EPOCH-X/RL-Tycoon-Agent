@@ -178,6 +178,7 @@ METRIC_KR: dict[str, str] = {
     "time_elapsed":         "경과 시간(초)",
     "total_timesteps":      "총 스텝 수",
     "mean_reward":          "평균 보상",
+    "mean_final_score":     "평균 최종 점수",
     "mean_ep_length":       "평균 에피소드 길이",
 }
 
@@ -350,6 +351,134 @@ class TrainingDiagnosticsCallback(BaseCallback):
         return True
 
 
+class FinalScoreEvalCallback(BaseCallback):
+    """Evaluate SB3 models and save best checkpoints by mean_final_score."""
+
+    def __init__(
+        self,
+        eval_env,
+        best_model_save_path: str,
+        log_path: str,
+        eval_freq: int = 5000,
+        n_eval_episodes: int = 5,
+        deterministic: bool = False,
+        patience: int = 50,
+        min_delta: float = 1.0,
+        verbose: int = 1,
+    ):
+        super().__init__(verbose)
+        self.eval_env = eval_env
+        self.best_model_save_path = best_model_save_path
+        self.log_path = log_path
+        self.eval_freq = max(1, int(eval_freq))
+        self.n_eval_episodes = max(1, int(n_eval_episodes))
+        self.deterministic = deterministic
+        self.patience = patience
+        self.min_delta = min_delta
+        self.best_final_score = -np.inf
+        self.wait = 0
+        self.eval_timesteps: list[int] = []
+        self.eval_rewards: list[float] = []
+        self.eval_final_scores: list[float] = []
+        self.eval_lengths: list[float] = []
+
+    def _on_training_start(self) -> None:
+        os.makedirs(self.best_model_save_path, exist_ok=True)
+        os.makedirs(self.log_path, exist_ok=True)
+
+    def _on_step(self) -> bool:
+        if self.n_calls % self.eval_freq != 0:
+            return True
+
+        mean_reward, std_reward, mean_length, std_length, mean_final_score, std_final_score = self._evaluate_policy()
+
+        self.eval_timesteps.append(self.num_timesteps)
+        self.eval_rewards.append(mean_reward)
+        self.eval_final_scores.append(mean_final_score)
+        self.eval_lengths.append(mean_length)
+        np.savez(
+            os.path.join(self.log_path, "evaluations.npz"),
+            timesteps=np.array(self.eval_timesteps),
+            results=np.array(self.eval_rewards),
+            final_scores=np.array(self.eval_final_scores),
+            ep_lengths=np.array(self.eval_lengths),
+        )
+
+        self.logger.record("eval/mean_reward", float(mean_reward))
+        self.logger.record("eval/mean_final_score", float(mean_final_score))
+        self.logger.record("eval/mean_ep_length", float(mean_length))
+        self.logger.dump(self.num_timesteps)
+
+        improved = mean_final_score > self.best_final_score + self.min_delta
+
+        if self.verbose >= 1:
+            print(f"\n  ── 평가 결과 (스텝 {self.num_timesteps:,}) ──────────")
+            print(f"  평균 보상 (mean_reward):       {mean_reward:>10.2f} ± {std_reward:.2f}")
+            print(f"  평균 최종점수 (mean_final_score): {mean_final_score:>10.2f} ± {std_final_score:.2f}")
+            print(f"  에피소드 길이 (ep_length):      {mean_length:>10.0f} ± {std_length:.0f}")
+            if improved:
+                print(f"  ★ 신기록! (이전 최고 mean_final_score: {self.best_final_score:.1f})")
+            else:
+                print(f"  미개선 ({self.wait + 1}/{self.patience})  최고 mean_final_score: {self.best_final_score:.1f}")
+            print("  ─────────────────────────────────────────")
+
+        if improved:
+            self.best_final_score = mean_final_score
+            self.wait = 0
+            self.model.save(os.path.join(self.best_model_save_path, "best_model"))
+        else:
+            self.wait += 1
+
+        if self.wait >= self.patience:
+            if self.verbose >= 1:
+                print(
+                    f"\n  [조기종료] ★ 학습 조기 종료! {self.patience}회 연속 개선 없음 "
+                    f"(최고 mean_final_score={self.best_final_score:.1f}, 스텝={self.num_timesteps})"
+                )
+            return False
+        return True
+
+    def _evaluate_policy(self) -> tuple[float, float, float, float, float, float]:
+        rewards: list[float] = []
+        lengths: list[int] = []
+        final_scores: list[float] = []
+
+        obs = self.eval_env.reset()
+        if isinstance(obs, tuple):
+            obs = obs[0]
+
+        episode_reward = 0.0
+        episode_length = 0
+
+        while len(rewards) < self.n_eval_episodes:
+            action, _ = self.model.predict(obs, deterministic=self.deterministic)
+            obs, reward, done, info = self.eval_env.step(action)
+
+            reward_value = float(np.asarray(reward).reshape(-1)[0])
+            done_flag = bool(np.asarray(done).reshape(-1)[0])
+            info_dict = info[0] if isinstance(info, (list, tuple)) else info
+
+            episode_reward += reward_value
+            episode_length += 1
+
+            if done_flag:
+                rewards.append(episode_reward)
+                lengths.append(episode_length)
+                summary = info_dict.get("episode_summary", {}) if isinstance(info_dict, dict) else {}
+                final_scores.append(float(summary.get("final_score", 0.0)))
+                episode_reward = 0.0
+                episode_length = 0
+
+        return (
+            float(np.mean(rewards)),
+            float(np.std(rewards)),
+            float(np.mean(lengths)),
+            float(np.std(lengths)),
+            float(np.mean(final_scores)),
+            float(np.std(final_scores)),
+        )
+
+
 # ────────────────────────────────────────────────
 # Early Stopping (SB3 Callback) – 기존 영문 버전 (호환용)
 # ────────────────────────────────────────────────
@@ -422,10 +551,11 @@ class EarlyStopTracker:
     """
 
     def __init__(self, patience: int = 50, min_delta: float = 1.0,
-                 verbose: int = 1):
+                 verbose: int = 1, metric_name: str = "mean_final_score"):
         self.patience = patience
         self.min_delta = min_delta
         self.verbose = verbose
+        self.metric_name = metric_name
         self.best_reward: float = -np.inf
         self.wait: int = 0
 
@@ -445,12 +575,12 @@ class EarlyStopTracker:
         self.wait += 1
         if self.verbose >= 2:
             print(f"  [조기종료] 미개선 (No improve): {self.wait}/{self.patience} "
-                  f"(최고={self.best_reward:.1f}, 현재={eval_reward:.1f})")
+                  f"({self.metric_name} 최고={self.best_reward:.1f}, 현재={eval_reward:.1f})")
 
         if self.wait >= self.patience:
             if self.verbose >= 1:
                 print(f"\n  [조기종료] ★ 학습 조기 종료! "
                       f"{self.patience}회 연속 개선 없음 "
-                      f"(최고={self.best_reward:.1f})")
+                      f"({self.metric_name} 최고={self.best_reward:.1f})")
             return False
         return True

@@ -189,20 +189,23 @@ class DiscreteSACTrainer(BaseTrainer):
         replay = NumpyReplayBuffer(self._obs_dim, buffer_size)
         start_step = 1
         episode_rewards = []
-        best_eval = float("-inf")
+        best_score = float("-inf")
 
         # 시그널 핸들러에서 접근 가능하도록 인스턴스에 저장
         self._train_state = {
             "step": 0, "replay": replay,
-            "episode_rewards": episode_rewards, "best_eval": best_eval,
+            "episode_rewards": episode_rewards,
+            "best_metric_value": best_score,
         }
 
         # ── 체크포인트에서 복원 ──
         if resume_path:
             ckpt_data = self.load_checkpoint(resume_path)
             start_step = ckpt_data["step"] + 1
-            best_eval = ckpt_data["best_eval"]
+            best_score = ckpt_data["best_metric_value"]
             episode_rewards = ckpt_data["episode_rewards"]
+            self._train_state["episode_rewards"] = episode_rewards
+            self._train_state["best_metric_value"] = best_score
             rp = ckpt_data.get("replay")
             if rp is not None:
                 n = rp["size"]
@@ -215,12 +218,13 @@ class DiscreteSACTrainer(BaseTrainer):
                 replay.size = n
             print(f"  [DiscreteSAC] 체크포인트 복원: step={start_step-1}, "
                   f"buffer={len(replay)}, episodes={len(episode_rewards)}, "
-                  f"best_eval={best_eval:.1f}")
+                                f"best_mean_final_score={best_score:.1f}")
 
         envs = [make_env(i, self._seed + i, self._game_ov, self._reward_cfg)()
                 for i in range(n_envs)]
         eval_env = make_env(0, self._seed + 1000, self._game_ov, self._reward_cfg)()
-        early_stop = EarlyStopTracker(patience=50, min_delta=1.0, verbose=1)
+        early_stop = EarlyStopTracker(patience=50, min_delta=1.0, verbose=1,
+                          metric_name="mean_final_score")
 
         obs_all = []
         ep_reward_all = [0.0] * n_envs
@@ -229,7 +233,7 @@ class DiscreteSACTrainer(BaseTrainer):
             obs_all.append(o)
 
         writer = SummaryWriter(os.path.join(self.save_path, "tb_logs"))
-        eval_timesteps, eval_results = [], []
+        eval_timesteps, eval_results, eval_final_scores = [], [], []
         loss_acc = {"q_loss": [], "policy_loss": [], "alpha": [], "entropy": []}
 
         for step in range(start_step, self._timesteps + 1):
@@ -289,11 +293,12 @@ class DiscreteSACTrainer(BaseTrainer):
                 writer.add_scalar("eval/mean_final_score", eval_score, step)
                 eval_timesteps.append(step)
                 eval_results.append(eval_r)
-                if eval_r > best_eval:
-                    best_eval = eval_r
-                    self._train_state["best_eval"] = best_eval
+                eval_final_scores.append(eval_score)
+                if eval_score > best_score:
+                    best_score = eval_score
+                    self._train_state["best_metric_value"] = best_score
                     self.save(os.path.join(self.save_path, "best_model"))
-                if not early_stop.check(eval_r):
+                if not early_stop.check(eval_score):
                     print(f"  [DiscreteSAC] 조기 종료, 스텝: {step}")
                     break
 
@@ -301,13 +306,14 @@ class DiscreteSACTrainer(BaseTrainer):
         self.save_checkpoint(
             os.path.join(self.save_path, "checkpoint"),
             step=step, replay=replay,
-            episode_rewards=episode_rewards, best_eval=best_eval,
+            episode_rewards=episode_rewards, best_metric_value=best_score,
         )
         eval_log_dir = os.path.join(self.save_path, "eval_logs")
         os.makedirs(eval_log_dir, exist_ok=True)
         np.savez(os.path.join(eval_log_dir, "evaluations.npz"),
                  timesteps=np.array(eval_timesteps),
-                 results=np.array(eval_results))
+                 results=np.array(eval_results),
+                 final_scores=np.array(eval_final_scores))
         writer.close()
         for env in envs:
             env.close()
@@ -418,7 +424,7 @@ class DiscreteSACTrainer(BaseTrainer):
             ep_info = {}
             while not done:
                 obs_t = torch.FloatTensor(obs).unsqueeze(0).to(self.device)
-                action = self.policy.get_action(obs_t, deterministic=True).item()
+                action = self.policy.get_action(obs_t, deterministic=False).item()
                 obs, r, terminated, truncated, info = env.step(action)
                 total += r
                 done = terminated or truncated
@@ -441,7 +447,8 @@ class DiscreteSACTrainer(BaseTrainer):
     def save_checkpoint(self, path: str, step: int,
                         replay: 'NumpyReplayBuffer | None' = None,
                         episode_rewards: list | None = None,
-                        best_eval: float = float("-inf")) -> None:
+                        best_metric_value: float = float("-inf"),
+                        best_eval: float | None = None) -> None:
         """학습 재개에 필요한 모든 상태를 저장합니다."""
         data = {
             "policy": self.policy.state_dict(),
@@ -450,7 +457,8 @@ class DiscreteSACTrainer(BaseTrainer):
             "q_opt": self._q_opt.state_dict(),
             "alpha_opt": self._alpha_opt.state_dict(),
             "step": step,
-            "best_eval": best_eval,
+            "best_metric_name": "mean_final_score",
+            "best_metric_value": best_metric_value if best_eval is None else best_eval,
             "episode_rewards": episode_rewards or [],
         }
         for i, (qn, qt) in enumerate(zip(self.q_nets, self.q_targets)):
@@ -483,7 +491,11 @@ class DiscreteSACTrainer(BaseTrainer):
             self._alpha_opt.load_state_dict(ckpt["alpha_opt"])
         return {
             "step": ckpt.get("step", 0),
-            "best_eval": ckpt.get("best_eval", float("-inf")),
+            "best_metric_value": (
+                ckpt.get("best_metric_value", float("-inf"))
+                if ckpt.get("best_metric_name") == "mean_final_score"
+                else float("-inf")
+            ),
             "episode_rewards": ckpt.get("episode_rewards", []),
             "replay": ckpt.get("replay"),
         }

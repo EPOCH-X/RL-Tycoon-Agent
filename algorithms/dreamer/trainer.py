@@ -180,10 +180,11 @@ class DreamerTrainer(BaseTrainer):
         envs = [make_env(i, self._seed + i, self._game_ov, self._reward_cfg)()
                 for i in range(n_envs)]
         eval_env = make_env(0, self._seed + 1000, self._game_ov, self._reward_cfg)()
-        early_stop = EarlyStopTracker(patience=50, min_delta=1.0, verbose=1)
+        early_stop = EarlyStopTracker(patience=50, min_delta=1.0, verbose=1,
+                          metric_name="mean_final_score")
 
         writer = SummaryWriter(os.path.join(self.save_path, "tb_logs"))
-        eval_timesteps, eval_results = [], []
+        eval_timesteps, eval_results, eval_final_scores = [], [], []
 
         # 각 환경의 상태 초기화
         obs_list = []
@@ -198,7 +199,7 @@ class DreamerTrainer(BaseTrainer):
             prev_action_list.append(torch.zeros(1, self._act_dim, device=self.device))
 
         episode_rewards = []
-        best_eval = float("-inf")
+        best_score = float("-inf")
         env_idx = 0  # round-robin 인덱스
 
         for step in range(1, self._timesteps + 1):
@@ -238,6 +239,7 @@ class DreamerTrainer(BaseTrainer):
                 if summary:
                     writer.add_scalar("rollout/served", summary.get("customers_served", 0), step)
                     writer.add_scalar("rollout/lost", summary.get("customers_lost", 0), step)
+                    writer.add_scalar("rollout/final_score", summary.get("final_score", 0), step)
                 if len(episode_rewards) % 10 == 0:
                     print(f"  [Dreamer] 스텝 {step}, 에피소드 {len(episode_rewards)}, "
                           f"평균보상(최근10): {np.mean(episode_rewards[-10:]):.1f}")
@@ -259,15 +261,17 @@ class DreamerTrainer(BaseTrainer):
 
             # Eval
             if step % eval_freq == 0:
-                eval_r = self._evaluate(eval_env)
-                print(f"  [Dreamer] 평가 스텝 {step}: mean_reward={eval_r:.1f}")
+                eval_r, eval_score = self._evaluate(eval_env)
+                print(f"  [Dreamer] 평가 스텝 {step}: mean_reward={eval_r:.1f}, mean_final_score={eval_score:.1f}")
                 writer.add_scalar("eval/mean_reward", eval_r, step)
+                writer.add_scalar("eval/mean_final_score", eval_score, step)
                 eval_timesteps.append(step)
                 eval_results.append(eval_r)
-                if eval_r > best_eval:
-                    best_eval = eval_r
+                eval_final_scores.append(eval_score)
+                if eval_score > best_score:
+                    best_score = eval_score
                     self.save(os.path.join(self.save_path, "best_model"))
-                if not early_stop.check(eval_r):
+                if not early_stop.check(eval_score):
                     print(f"  [Dreamer] 조기 종료, 스텝: {step}")
                     break
 
@@ -276,7 +280,8 @@ class DreamerTrainer(BaseTrainer):
         os.makedirs(eval_log_dir, exist_ok=True)
         np.savez(os.path.join(eval_log_dir, "evaluations.npz"),
                  timesteps=np.array(eval_timesteps),
-                 results=np.array(eval_results))
+                 results=np.array(eval_results),
+                 final_scores=np.array(eval_final_scores))
         writer.close()
         for e in envs:
             e.close()
@@ -427,26 +432,32 @@ class DreamerTrainer(BaseTrainer):
             "entropy": im_entropies.mean().item(),
         }
 
-    def _evaluate(self, env, n_episodes: int = 5) -> float:
+    def _evaluate(self, env, n_episodes: int = 5) -> tuple[float, float]:
         total = 0.0
+        total_score = 0.0
         for _ in range(n_episodes):
             obs, _ = env.reset()
             done = False
             h, z = self.rssm.initial_state(1, self.device)
             prev_action = torch.zeros(1, self._act_dim, device=self.device)
+            ep_info = {}
             while not done:
                 with torch.no_grad():
                     obs_t = torch.FloatTensor(obs).unsqueeze(0).to(self.device)
                     h, z, _, _ = self.rssm.observe_step(h, z, prev_action, obs_t)
                     feat = self.rssm.get_feature(h, z)
                     probs = self.actor(feat)
-                    action = probs.argmax(dim=-1).item()
+                    action = torch.distributions.Categorical(probs).sample().item()
                 prev_action = F.one_hot(torch.tensor([action], device=self.device),
                                         self._act_dim).float()
-                obs, r, terminated, truncated, _ = env.step(action)
+                obs, r, terminated, truncated, info = env.step(action)
                 total += r
                 done = terminated or truncated
-        return total / n_episodes
+                if done:
+                    ep_info = info
+                summary = ep_info.get("episode_summary", {})
+                total_score += summary.get("final_score", 0.0)
+            return total / n_episodes, total_score / n_episodes
 
     def save(self, path: str) -> None:
         torch.save({

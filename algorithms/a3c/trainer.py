@@ -108,8 +108,12 @@ def _worker(rank: int, global_model: ActorCritic, optimizer: SharedAdam,
             if terminated or truncated:
                 episode_count += 1
                 if episode_count % 10 == 0:
+                    final_score = 0.0
+                    summary = info.get("episode_summary") if isinstance(info, dict) else None
+                    if summary:
+                        final_score = float(summary.get("final_score", 0.0))
                     results_queue.put(("episode", rank, episode_count,
-                                       episode_reward))
+                                       episode_reward, final_score))
                 obs, _ = env.reset()
                 episode_reward = 0.0
                 break
@@ -235,14 +239,15 @@ class A3CTrainer(BaseTrainer):
         obs_arr = vec_env.reset()
         total_steps = 0
         episode_count = 0
-        best_eval = float("-inf")
-        early_stop = EarlyStopTracker(patience=50, min_delta=1.0, verbose=1)
+        best_score = float("-inf")
+        early_stop = EarlyStopTracker(patience=50, min_delta=1.0, verbose=1,
+                          metric_name="mean_final_score")
 
         print(f"  [A3C-GPU (비동기 액터-크리틱)] {n_envs}개 병렬 환경으로 학습 시작, 디바이스: {self.device}")
 
         # TensorBoard + 평가 기록
         writer = SummaryWriter(os.path.join(self.save_path, "tb_logs"))
-        eval_timesteps, eval_results = [], []
+        eval_timesteps, eval_results, eval_final_scores = [], [], []
 
         while total_steps < self._timesteps:
             # ── 1) Rollout 수집 (no_grad – 행동 선택만) ──
@@ -275,6 +280,7 @@ class A3CTrainer(BaseTrainer):
                             writer.add_scalar("rollout/lost", summary.get("customers_lost", 0), total_steps)
                             writer.add_scalar("rollout/profit", summary.get("net_profit", 0), total_steps)
                             writer.add_scalar("rollout/rating", summary.get("shop_rating", 0), total_steps)
+                            writer.add_scalar("rollout/final_score", summary.get("final_score", 0), total_steps)
 
             # ── 2) 그래디언트 계산을 위해 forward pass 재실행 ──
             all_obs = torch.stack(mb_obs)              # [n_steps, n_envs, obs_dim]
@@ -332,16 +338,18 @@ class A3CTrainer(BaseTrainer):
 
             # 평가
             if total_steps % eval_freq < n_envs * n_steps:
-                eval_r = self._evaluate_gpu(eval_env)
+                eval_r, eval_score = self._evaluate_gpu(eval_env)
                 print(f"  [A3C-GPU] 평가(Eval) 스텝 {total_steps}: "
-                      f"평균보상(mean_reward)={eval_r:.1f}")
+                      f"평균보상(mean_reward)={eval_r:.1f}, 평균최종점수(mean_final_score)={eval_score:.1f}")
                 writer.add_scalar("eval/mean_reward", eval_r, total_steps)
+                writer.add_scalar("eval/mean_final_score", eval_score, total_steps)
                 eval_timesteps.append(total_steps)
                 eval_results.append(eval_r)
-                if eval_r > best_eval:
-                    best_eval = eval_r
+                eval_final_scores.append(eval_score)
+                if eval_score > best_score:
+                    best_score = eval_score
                     self.save(os.path.join(self.save_path, "best_model"))
-                if not early_stop.check(eval_r):
+                if not early_stop.check(eval_score):
                     print(f"  [A3C-GPU] 조기 종료 (Early stopped), 스텝: {total_steps}")
                     break
 
@@ -352,7 +360,8 @@ class A3CTrainer(BaseTrainer):
         os.makedirs(eval_log_dir, exist_ok=True)
         np.savez(os.path.join(eval_log_dir, "evaluations.npz"),
                  timesteps=np.array(eval_timesteps),
-                 results=np.array(eval_results))
+                 results=np.array(eval_results),
+                 final_scores=np.array(eval_final_scores))
         writer.close()
         print(f"[✓] A3C-GPU (비동기 액터-크리틱) 학습 완료 ({episode_count}개 에피소드). "
               f"모델 → '{self.save_path}/'")
@@ -361,19 +370,25 @@ class A3CTrainer(BaseTrainer):
                 "total_episodes": episode_count,
                 "save_path": self.save_path}
 
-    def _evaluate_gpu(self, env, n_episodes: int = 5) -> float:
+    def _evaluate_gpu(self, env, n_episodes: int = 5) -> tuple[float, float]:
         total = 0.0
+        total_score = 0.0
         for _ in range(n_episodes):
             obs, _ = env.reset()
             done = False
+            ep_info = {}
             while not done:
                 obs_t = torch.FloatTensor(obs).unsqueeze(0).to(self.device)
                 with torch.no_grad():
-                    action, _ = self.global_model.evaluate(obs_t)
-                obs, r, terminated, truncated, _ = env.step(action.item())
+                    action, _, _, _ = self.global_model.act(obs_t)
+                obs, r, terminated, truncated, info = env.step(action.item())
                 total += r
                 done = terminated or truncated
-        return total / n_episodes
+                if done:
+                    ep_info = info
+            summary = ep_info.get("episode_summary", {})
+            total_score += summary.get("final_score", 0.0)
+        return total / n_episodes, total_score / n_episodes
 
     # ── CPU A3C 모드 (멀티프로세스) ──
     def _train_cpu(self) -> dict[str, Any]:
@@ -381,10 +396,19 @@ class A3CTrainer(BaseTrainer):
 
         n_workers = self.cfg.get("training", {}).get("n_workers", 4)
         lr = self.cfg.get("hyperparameters", {}).get("learning_rate", 1e-4)
+        seed = self.cfg.get("training", {}).get("seed", 42)
+        game_ov = self.cfg.get("game_overrides", {})
+        reward_cfg = self.cfg.get("reward_shaping", {})
+        eval_freq = self.cfg.get("training", {}).get("eval_freq", 5000)
 
         optimizer = SharedAdam(self.global_model.parameters(), lr=lr)
         global_counter = mp.Value("i", 0)
         results_queue = mp.Queue()
+        eval_env = make_env(0, seed + 1000, game_ov, reward_cfg)()
+        early_stop = EarlyStopTracker(patience=50, min_delta=1.0, verbose=1,
+                                      metric_name="mean_final_score")
+        next_eval_step = eval_freq
+        best_score = float("-inf")
 
         workers = []
         for rank in range(n_workers):
@@ -404,19 +428,37 @@ class A3CTrainer(BaseTrainer):
             while not results_queue.empty():
                 msg = results_queue.get_nowait()
                 if msg[0] == "episode":
-                    _, rank, ep_cnt, ep_rew = msg
+                    _, rank, ep_cnt, ep_rew, ep_score = msg
                     ep_global += 1
                     writer.add_scalar("rollout/ep_reward", ep_rew, ep_global)
+                    writer.add_scalar("rollout/final_score", ep_score, ep_global)
                     print(f"  [워커 {rank}] 에피소드(Episode) {ep_cnt}, "
-                          f"보상(Reward): {ep_rew:.1f}")
+                          f"보상(Reward): {ep_rew:.1f}, 최종점수(FinalScore): {ep_score:.1f}")
                 elif msg[0] == "done":
                     _, rank, ep_cnt, _ = msg
                     total_episodes += ep_cnt
+
+            with global_counter.get_lock():
+                current_steps = global_counter.value
+            if current_steps >= next_eval_step:
+                eval_r, eval_score = self._evaluate_gpu(eval_env)
+                print(f"  [A3C-CPU] 평가(Eval) 스텝 {current_steps}: 평균보상(mean_reward)={eval_r:.1f}, 평균최종점수(mean_final_score)={eval_score:.1f}")
+                writer.add_scalar("eval/mean_reward", eval_r, current_steps)
+                writer.add_scalar("eval/mean_final_score", eval_score, current_steps)
+                if eval_score > best_score:
+                    best_score = eval_score
+                    self.save(os.path.join(self.save_path, "best_model"))
+                if not early_stop.check(eval_score):
+                    with global_counter.get_lock():
+                        global_counter.value = self._timesteps
+                    break
+                next_eval_step += eval_freq
 
         for p in workers:
             p.join()
 
         writer.close()
+        eval_env.close()
         self.save(os.path.join(self.save_path, "final_model"))
         print(f"[✓] A3C-CPU (비동기 액터-크리틱) 학습 완료 ({total_episodes}개 에피소드). "
               f"모델 → '{self.save_path}/'")

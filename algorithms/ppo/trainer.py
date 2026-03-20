@@ -7,12 +7,10 @@ import os
 from typing import Any
 
 from stable_baselines3 import PPO
-from stable_baselines3.common.callbacks import EvalCallback
-
 from algorithms.base import BaseTrainer
 from algorithms.common import (
     load_algo_config, make_vec_env, build_policy_kwargs,
-    save_run_config, get_sb3_device, KoreanEvalStopCallback,
+    save_run_config, get_sb3_device, FinalScoreEvalCallback,
     TrainingDiagnosticsCallback,
     print_metric_reference, linear_schedule,
 )
@@ -87,15 +85,16 @@ class PPOTrainer(BaseTrainer):
         )
 
         patience = t.get("patience", 150)
-        self._eval_cb = EvalCallback(
+        self._eval_cb = FinalScoreEvalCallback(
             self.eval_env,
             best_model_save_path=self.save_path,
             log_path=os.path.join(self.save_path, "eval_logs"),
             eval_freq=eval_freq,
+            n_eval_episodes=t.get("n_eval_episodes", 5),
             deterministic=False,
-            verbose=0,
-            callback_after_eval=KoreanEvalStopCallback(
-                patience=patience, min_delta=1.0, verbose=1),
+            patience=patience,
+            min_delta=1.0,
+            verbose=1,
         )
 
     # ── train ────────────────────────────────────

@@ -28,6 +28,50 @@ from typing import Any
 from algorithms.registry import get_algorithm, ALGORITHM_REGISTRY
 
 
+def _resolve_algo_arg(raw_name: str) -> tuple[str, str | None, int | None]:
+    """사용자 입력 알고리즘 문자열을 표준 이름과 경로 힌트로 변환합니다.
+
+    허용 예시:
+    - PPO
+    - ppo
+    - PPO_v5
+    - PPO_60d
+    - PPO_60d_v5
+    """
+    normalized = raw_name.strip()
+    if not normalized:
+        raise ValueError("Algorithm name cannot be empty")
+
+    lower_to_canonical = {
+        name.lower(): name for name in ALGORITHM_REGISTRY.keys()
+    }
+    normalized_lower = normalized.lower()
+
+    canonical = lower_to_canonical.get(normalized_lower)
+    if canonical:
+        return canonical, None, None
+
+    for key_lower, canonical_name in sorted(
+        lower_to_canonical.items(), key=lambda item: len(item[0]), reverse=True
+    ):
+        if not normalized_lower.startswith(key_lower):
+            continue
+
+        suffix = normalized_lower[len(key_lower):]
+        if not suffix:
+            return canonical_name, None, None
+
+        if re.fullmatch(r"(?:_(?:30d|60d))?(?:_v\d+)?", suffix):
+            inferred_days = 60 if "_60d" in suffix else 30 if "_30d" in suffix else None
+            return canonical_name, f"models/{normalized_lower}", inferred_days
+
+    valid_names = ", ".join(ALGORITHM_REGISTRY.keys())
+    raise ValueError(
+        f"Invalid algorithm '{raw_name}'. Use one of: {valid_names}, "
+        "or a versioned alias such as PPO_v5 / PPO_60d_v2."
+    )
+
+
 def _next_version_path(base_path: str) -> str:
     """기존 폴더가 있으면 자동으로 v2, v3, ... 버전을 생성합니다.
 
@@ -140,7 +184,7 @@ def _sigint_handler(signum, frame):
                     step=ts.get("step", 0),
                     replay=ts.get("replay"),
                     episode_rewards=ts.get("episode_rewards", []),
-                    best_eval=ts.get("best_eval", float("-inf")),
+                    best_metric_value=ts.get("best_metric_value", ts.get("best_eval", float("-inf"))),
                 )
             elif hasattr(_active_trainer, 'model') and _active_trainer.model:
                 # SB3 트레이너 (PPO, DQN)
@@ -266,7 +310,7 @@ def evaluate_model(algo_name: str, model_path: str, n_episodes: int = 20):
         total_reward = 0.0
         steps = 0
         while not done:
-            action = trainer.predict(obs, deterministic=True)
+            action = trainer.predict(obs, deterministic=False)
             obs, reward, terminated, truncated, info = env.step(action)
             total_reward += reward
             steps += 1
@@ -342,8 +386,7 @@ def main():
         description="RL Tycoon – 통합 알고리즘 학습/평가 런처")
 
     p.add_argument("--algo", type=str, default="PPO",
-                   choices=list(ALGORITHM_REGISTRY.keys()),
-                   help="학습할 알고리즘 선택")
+                   help="학습할 알고리즘 선택 (예: PPO, DiscreteSAC, PPO_v5, PPO_60d_v2)")
     p.add_argument("--config", type=str, default=None,
                    help="커스텀 설정 JSON 경로")
     p.add_argument("--timesteps", type=int, default=None,
@@ -369,6 +412,17 @@ def main():
                    help="평가 에피소드 수")
 
     args = p.parse_args()
+
+    try:
+        resolved_algo, inferred_save_path, inferred_days = _resolve_algo_arg(args.algo)
+    except ValueError as exc:
+        p.error(str(exc))
+
+    args.algo = resolved_algo
+    if inferred_save_path and not args.save_path:
+        args.save_path = inferred_save_path
+    if inferred_days and args.days is None:
+        args.days = inferred_days
 
     if args.benchmark:
         benchmark_all(args)

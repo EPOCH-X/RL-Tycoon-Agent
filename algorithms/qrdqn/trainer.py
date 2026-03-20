@@ -11,12 +11,10 @@ import os
 from typing import Any
 
 from sb3_contrib import QRDQN
-from stable_baselines3.common.callbacks import EvalCallback
-
 from algorithms.base import BaseTrainer
 from algorithms.common import (
     load_algo_config, make_vec_env, build_policy_kwargs,
-    save_run_config, get_sb3_device, KoreanEvalStopCallback,
+    save_run_config, get_sb3_device, FinalScoreEvalCallback,
     TrainingDiagnosticsCallback,
     print_metric_reference,
 )
@@ -88,15 +86,16 @@ class QRDQNTrainer(BaseTrainer):
         )
 
         patience = t.get("patience", 100)
-        self._eval_cb = EvalCallback(
+        self._eval_cb = FinalScoreEvalCallback(
             self.eval_env,
             best_model_save_path=self.save_path,
             log_path=os.path.join(self.save_path, "eval_logs"),
             eval_freq=eval_freq,
-            deterministic=True,
-            verbose=0,
-            callback_after_eval=KoreanEvalStopCallback(
-                patience=patience, min_delta=1.0, verbose=1),
+            deterministic=False,
+            n_eval_episodes=t.get("n_eval_episodes", 5),
+            patience=patience,
+            min_delta=1.0,
+            verbose=1,
         )
 
     def train(self, resume_path: str | None = None) -> dict[str, Any]:

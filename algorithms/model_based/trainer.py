@@ -236,13 +236,14 @@ class ModelBasedTrainer(BaseTrainer):
         obs, _ = env.reset()
         ep_rewards = []
         ep_reward = 0.0
-        best_eval = float("-inf")
+        best_score = float("-inf")
         use_mpc = True  # 초반엔 MPC, 후반엔 정책 네트워크 사용
-        early_stop = EarlyStopTracker(patience=50, min_delta=1.0, verbose=1)
+        early_stop = EarlyStopTracker(patience=50, min_delta=1.0, verbose=1,
+                          metric_name="mean_final_score")
 
         # TensorBoard + 평가 기록
         writer = SummaryWriter(os.path.join(self.save_path, "tb_logs"))
-        eval_timesteps, eval_results = [], []
+        eval_timesteps, eval_results, eval_final_scores = [], [], []
 
         for step in range(1, self._timesteps + 1):
             # 행동 선택: MPC 또는 Policy
@@ -274,6 +275,7 @@ class ModelBasedTrainer(BaseTrainer):
                     writer.add_scalar("rollout/lost", summary.get("customers_lost", 0), step)
                     writer.add_scalar("rollout/profit", summary.get("net_profit", 0), step)
                     writer.add_scalar("rollout/rating", summary.get("shop_rating", 0), step)
+                    writer.add_scalar("rollout/final_score", summary.get("final_score", 0), step)
                 obs, _ = env.reset()
                 ep_reward = 0.0
 
@@ -301,16 +303,18 @@ class ModelBasedTrainer(BaseTrainer):
 
             # 평가
             if step % eval_freq == 0:
-                eval_r = self._evaluate(eval_env)
+                eval_r, eval_score = self._evaluate(eval_env)
                 print(f"  [ModelBased] 평가(Eval) 스텝 {step}: "
-                      f"평균보상(mean_reward)={eval_r:.1f}")
+                      f"평균보상(mean_reward)={eval_r:.1f}, 평균최종점수(mean_final_score)={eval_score:.1f}")
                 writer.add_scalar("eval/mean_reward", eval_r, step)
+                writer.add_scalar("eval/mean_final_score", eval_score, step)
                 eval_timesteps.append(step)
                 eval_results.append(eval_r)
-                if eval_r > best_eval:
-                    best_eval = eval_r
+                eval_final_scores.append(eval_score)
+                if eval_score > best_score:
+                    best_score = eval_score
                     self.save(os.path.join(self.save_path, "best_model"))
-                if not early_stop.check(eval_r):
+                if not early_stop.check(eval_score):
                     print(f"  [ModelBased] 조기 종료 (Early stopped), 스텝: {step}")
                     break
 
@@ -319,7 +323,8 @@ class ModelBasedTrainer(BaseTrainer):
         os.makedirs(eval_log_dir, exist_ok=True)
         np.savez(os.path.join(eval_log_dir, "evaluations.npz"),
                  timesteps=np.array(eval_timesteps),
-                 results=np.array(eval_results))
+                 results=np.array(eval_results),
+                 final_scores=np.array(eval_final_scores))
         writer.close()
         env.close()
         eval_env.close()
@@ -401,19 +406,25 @@ class ModelBasedTrainer(BaseTrainer):
         torch.nn.utils.clip_grad_norm_(self.policy.parameters(), 0.5)
         self._policy_opt.step()
 
-    def _evaluate(self, env, n_episodes: int = 5) -> float:
+    def _evaluate(self, env, n_episodes: int = 5) -> tuple[float, float]:
         total = 0.0
+        total_score = 0.0
         for _ in range(n_episodes):
             obs, _ = env.reset()
             done = False
+            ep_info = {}
             while not done:
                 obs_t = torch.FloatTensor(obs).unsqueeze(0).to(self.device)
                 with torch.no_grad():
-                    action, _ = self.policy.get_action(obs_t, deterministic=True)
-                obs, r, terminated, truncated, _ = env.step(action.item())
+                    action, _ = self.policy.get_action(obs_t, deterministic=False)
+                obs, r, terminated, truncated, info = env.step(action.item())
                 total += r
                 done = terminated or truncated
-        return total / n_episodes
+                if done:
+                    ep_info = info
+            summary = ep_info.get("episode_summary", {})
+            total_score += summary.get("final_score", 0.0)
+        return total / n_episodes, total_score / n_episodes
 
     def save(self, path: str) -> None:
         torch.save({

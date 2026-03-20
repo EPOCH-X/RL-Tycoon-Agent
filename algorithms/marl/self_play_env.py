@@ -200,6 +200,14 @@ class SelfPlayEnv(gymnasium.Env):
             "won": self.shop.won,
             "opp_won": self.opponent_shop.won,
         }
+        if terminated or truncated:
+            info["episode_summary"] = {
+                "customers_served": self.shop.customers_served,
+                "customers_lost": self.shop.customers_lost,
+                "net_profit": float(self.shop.net_profit),
+                "shop_rating": float(self.shop.shop_rating),
+                "final_score": float(self.shop.final_score),
+            }
         self._prev_net_profit = float(self.shop.net_profit)
         self._prev_rating = float(self.shop.shop_rating)
         self._prev_final_score = float(self.shop.final_score)

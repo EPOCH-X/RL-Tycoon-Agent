@@ -16,12 +16,12 @@ from typing import Any
 import numpy as np
 from stable_baselines3 import PPO
 from stable_baselines3.common.vec_env import DummyVecEnv
-from stable_baselines3.common.callbacks import BaseCallback, EvalCallback
+from stable_baselines3.common.callbacks import BaseCallback
 
 from algorithms.base import BaseTrainer
 from algorithms.common import (
     load_algo_config, build_policy_kwargs, save_run_config,
-    get_sb3_device, KoreanEvalStopCallback, print_metric_reference,
+    get_sb3_device, FinalScoreEvalCallback, print_metric_reference,
 )
 from algorithms.marl.self_play_env import SelfPlayEnv
 
@@ -172,7 +172,6 @@ class MARLTrainer(BaseTrainer):
     def train(self, resume_path: str | None = None) -> dict[str, Any]:
         assert self.model is not None, "call build() first"
 
-        early_cb = KoreanEvalStopCallback(patience=50, min_delta=1.0, verbose=1)
         reward_cfg = self.cfg.get("reward_shaping", {})
         game_ov = self.cfg.get("game_overrides", {})
 
@@ -185,14 +184,16 @@ class MARLTrainer(BaseTrainer):
             return SelfPlayEnv(reward_config=reward_cfg, **kwargs)
 
         eval_env = DummyVecEnv([_make_eval_env])
-        eval_cb = EvalCallback(
+        eval_cb = FinalScoreEvalCallback(
             eval_env,
             best_model_save_path=self.save_path,
             log_path=os.path.join(self.save_path, "eval_logs"),
             eval_freq=self.cfg.get("training", {}).get("eval_freq", 5000),
-            deterministic=True,
-            verbose=0,
-            callback_after_eval=early_cb,
+            deterministic=False,
+            n_eval_episodes=self.cfg.get("training", {}).get("n_eval_episodes", 5),
+            patience=self.cfg.get("training", {}).get("patience", 50),
+            min_delta=1.0,
+            verbose=1,
         )
 
         sp_cb = SelfPlayCallback(

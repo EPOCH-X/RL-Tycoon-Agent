@@ -20,12 +20,10 @@ from typing import Any
 import numpy as np
 from stable_baselines3 import PPO, DQN
 from stable_baselines3.common.vec_env import DummyVecEnv
-from stable_baselines3.common.callbacks import EvalCallback
-
 from algorithms.base import BaseTrainer
 from algorithms.common import (
     load_algo_config, save_run_config, build_policy_kwargs,
-    get_sb3_device, linear_schedule, KoreanEvalStopCallback,
+    get_sb3_device, linear_schedule, FinalScoreEvalCallback,
     set_env_override, clear_env_override,
 )
 from algorithms.marl.self_play_env import SelfPlayEnv
@@ -345,15 +343,16 @@ class CrossPlayTrainer(BaseTrainer):
 
     def _setup_sb3_callbacks(self, eval_freq, n_envs, n_eval):
         """SB3 학습용 콜백을 설정합니다."""
-        kr_stop = KoreanEvalStopCallback(patience=50)
-        eval_cb = EvalCallback(
+        eval_cb = FinalScoreEvalCallback(
             self._eval_env,
             best_model_save_path=self.save_path,
             log_path=os.path.join(self.save_path, "eval_logs"),
             eval_freq=max(eval_freq // n_envs, 1),
             n_eval_episodes=n_eval,
-            verbose=0,
-            callback_after_eval=kr_stop,
+            deterministic=False,
+            patience=self.cfg.get("training", {}).get("patience", 50),
+            min_delta=1.0,
+            verbose=1,
         )
         self._callbacks = [eval_cb]
 
