@@ -315,7 +315,7 @@ def build_observation(shop: Shop) -> np.ndarray:
             tid = choices[i].get("id", "")
             obs[idx]     = _TRAIT_IDS.get(tid, 0) / _NUM_TRAIT_TYPES
             ms = max(1, choices[i].get("max_stacks", 1))
-            cur = shop.trait_stacks.get(tid, 0)
+            cur = shop.traits.get(tid, 0)
             obs[idx + 1] = cur / ms
         idx += 2
 
