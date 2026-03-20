@@ -188,8 +188,6 @@ class Renderer:
         if not self.am.tile_chair:
             return
         for table in shop.tables:
-            if not table.is_occupied:
-                continue
             rect = pygame.Rect(table.grid_x * TILE_SIZE + ox,
                                table.grid_y * TILE_SIZE + oy,
                                TILE_SIZE, TILE_SIZE)
@@ -402,6 +400,24 @@ class Renderer:
                 else:
                     di = self.font_sm.render("음", True, (180, 100, 255))
                     surface.blit(di, (cx + TILE_SIZE - 14, cy + 2))
+
+            badge_text = None
+            badge_color = None
+            if cust.state == CustomerState.WAITING_TO_ORDER:
+                badge_text = "주문 대기"
+                badge_color = (90, 190, 255)
+            elif cust.state == CustomerState.ORDER_TAKEN:
+                badge_text = "음식 대기"
+                badge_color = (255, 190, 90)
+            if badge_text:
+                badge = self.font_sm.render(badge_text, True, (255, 255, 255))
+                badge_rect = badge.get_rect(center=(cx + TILE_SIZE // 2, cy - 8))
+                bg_rect = badge_rect.inflate(12, 6)
+                bg = pygame.Surface((bg_rect.width, bg_rect.height), pygame.SRCALPHA)
+                bg.fill((20, 20, 28, 190))
+                surface.blit(bg, bg_rect.topleft)
+                pygame.draw.rect(surface, badge_color, bg_rect, 2, border_radius=8)
+                surface.blit(badge, badge_rect)
 
             # Patience bar
             if cust.state in (CustomerState.WAITING_TO_ORDER,

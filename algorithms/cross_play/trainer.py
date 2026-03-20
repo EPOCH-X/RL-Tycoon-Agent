@@ -58,6 +58,8 @@ def _find_trained_models() -> list[dict]:
             entry = None
             if f == "best_model.zip":
                 entry = {"path": full}
+            elif f == "final_model.zip":
+                entry = {"path": full}
             elif f == "best_model.pt":
                 entry = {"path": full[:-3]}  # remove .pt extension
             elif f == "final_model.pt":
