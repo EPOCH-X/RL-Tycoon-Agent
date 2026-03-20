@@ -10,6 +10,7 @@ if TYPE_CHECKING:
 ALGORITHM_REGISTRY: dict[str, str] = {
     "PPO":         "algorithms.ppo.trainer.PPOTrainer",
     "DQN":         "algorithms.dqn.trainer.DQNTrainer",
+    "QRDQN":       "algorithms.qrdqn.trainer.QRDQNTrainer",
     "A3C":         "algorithms.a3c.trainer.A3CTrainer",
     "SAC":         "algorithms.sac.trainer.SACTrainer",
     "MARL":        "algorithms.marl.trainer.MARLTrainer",

@@ -12,8 +12,8 @@ import gymnasium
 from gymnasium import spaces
 
 from config.settings import (
-    TILE_SIZE, UI_HEIGHT, COLORS, ASSETS_DIR, NUM_ACTIONS,
-    INTERACT_RANGE, ACTION_INTERACT, ACTION_NONE,
+    TILE_SIZE, UI_HEIGHT, COLORS, NUM_ACTIONS,
+    INTERACT_RANGE, ACTION_INTERACT, ACTION_NONE, ACTION_BUY_UPGRADE,
     load_json_config,
 )
 from core.shop import Shop
@@ -455,6 +455,25 @@ class TycoonEnv(gymnasium.Env):
         if action == ACTION_NONE:
             events.append(("idle_penalty", 1.0))
 
+        # ── upgrade_available: 업그레이드 가능한데 안 살 때 매 스텝 페널티 ──
+        if action != ACTION_BUY_UPGRADE:
+            shop = self.shop
+            for upg in shop.upgrades_data:
+                uid = upg["id"]
+                level = shop.upgrade_levels[uid]
+                if level < upg["max_level"]:
+                    if upg.get("effect_type") == "hire_chef" and shop.num_chefs >= shop.max_chefs:
+                        continue
+                    req = upg.get("unlock_profit", 0)
+                    if shop.net_profit < req:
+                        continue
+                    cost = (upg["cost_list"][level]
+                            if "cost_list" in upg and level < len(upg["cost_list"])
+                            else int(upg["base_cost"] * (upg["cost_multiplier"] ** level)))
+                    if shop.money >= cost:
+                        events.append(("upgrade_available", 1.0))
+                        break
+
         if action in (0, 1, 2, 3):
             moved_dist = math.hypot(self.shop.player.x - before_x,
                                     self.shop.player.y - before_y)
@@ -541,7 +560,9 @@ class TycoonEnv(gymnasium.Env):
                 h = self.shop.grid_height * TILE_SIZE + UI_HEIGHT
                 self._screen = pygame.display.set_mode((w, h))
                 pygame.display.set_caption("RL 타이쿤 – 학습 중")
-                self._renderer = Renderer(AssetManager(ASSETS_DIR))
+                am = AssetManager()
+                am.ensure_loaded()
+                self._renderer = Renderer(am)
 
             self._screen.fill(COLORS["background"])
             self._renderer.draw(self._screen, self.shop)
@@ -562,7 +583,9 @@ class TycoonEnv(gymnasium.Env):
             if self._renderer is None:
                 from rendering.asset_manager import AssetManager
                 from rendering.renderer import Renderer
-                self._renderer = Renderer(AssetManager(ASSETS_DIR))
+                am = AssetManager()
+                am.ensure_loaded()
+                self._renderer = Renderer(am)
             self._renderer.draw(surf, self.shop)
             return np.transpose(
                 pygame.surfarray.array3d(surf), axes=(1, 0, 2))

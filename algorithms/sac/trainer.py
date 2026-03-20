@@ -170,7 +170,7 @@ class SACTrainer(BaseTrainer):
         self._reward_cfg = reward_cfg
         self._seed = seed
 
-    def train(self) -> dict[str, Any]:
+    def train(self, resume_path: str | None = None) -> dict[str, Any]:
         assert self.policy is not None, "call build() first"
         hp = self._hp
         gamma = hp.get("gamma", 0.99)

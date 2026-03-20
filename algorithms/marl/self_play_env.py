@@ -4,6 +4,7 @@
 상대방의 성과(돈, 평점)를 관측에 포함하여 상대적 전략을 학습합니다.
 """
 
+import random as _random
 import numpy as np
 import gymnasium
 from gymnasium import spaces
@@ -24,7 +25,8 @@ class SelfPlayEnv(gymnasium.Env):
     metadata = {"render_modes": ["human"], "render_fps": 10}
 
     def __init__(self, render_mode=None, reward_config=None,
-                 opponent_agent=None, **shop_kwargs):
+                 opponent_agent=None, opponent_pool=None,
+                 compat_mode=False, **shop_kwargs):
         super().__init__()
         self.shop = Shop(**shop_kwargs)
         self.opponent_shop = Shop(**shop_kwargs)
@@ -34,13 +36,17 @@ class SelfPlayEnv(gymnasium.Env):
         # 상대 요약 차원: money_ratio, rating, customers_served_ratio
         self._opponent_summary_dim = 3
         base_obs_len = _obs_size(self.shop)
-        total_obs_len = base_obs_len + self._opponent_summary_dim
+        # compat_mode=True → 기존 TycoonEnv 관측 차원 유지 (이전 모델 호환)
+        self._compat_mode = compat_mode
+        total_obs_len = base_obs_len if compat_mode else (base_obs_len + self._opponent_summary_dim)
 
         self.action_space = spaces.Discrete(NUM_ACTIONS)
+        obs_high = 1.0 if compat_mode else 2.0
         self.observation_space = spaces.Box(
-            low=-1.0, high=2.0, shape=(total_obs_len,), dtype=np.float32)
+            low=-1.0, high=obs_high, shape=(total_obs_len,), dtype=np.float32)
 
         self._opponent_agent = opponent_agent
+        self._opponent_pool = opponent_pool or []
         self._reward_cfg = reward_config or {}
         self._prev_potential: float = 0.0
         self._prev_net_profit: float = 0.0
@@ -63,6 +69,8 @@ class SelfPlayEnv(gymnasium.Env):
 
     def _build_obs(self) -> np.ndarray:
         base = build_observation(self.shop)
+        if self._compat_mode:
+            return base
         # 상대 요약
         opp_money = min(2.0, self.opponent_shop.money /
                         max(1, self.opponent_shop.target_money))
@@ -135,6 +143,9 @@ class SelfPlayEnv(gymnasium.Env):
 
     def reset(self, *, seed=None, options=None):
         super().reset(seed=seed)
+        # opponent_pool이 있으면 매 에피소드마다 랜덤 상대 선택
+        if self._opponent_pool:
+            self._opponent_agent = _random.choice(self._opponent_pool)
         self.shop.reset()
         self.opponent_shop.reset()
         self._prev_potential = self._calc_potential()

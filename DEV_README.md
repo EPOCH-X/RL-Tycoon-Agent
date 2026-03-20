@@ -7,18 +7,18 @@
 
 ## 최근 변경사항
 
-| 변경 내용 | 영향 파일 |
-|-----------|-----------|
-| **바텐더 듀얼 서브 시스템**: 음식+음료 모두 서빙해야 식사 시작 | customer.py, shop.py |
-| **배달 시스템 완전 삭제** | shop.py, renderer.py, gym_env.py, upgrades.json |
-| **순이익 = 매장 판매 총 수입만** (상점 구매 비용 미차감) | shop.py (`net_profit` property) |
-| **최종 스코어 = 순이익 × (1 + 평점/10)** | shop.py (`final_score` property) |
-| **직원 속도 업그레이드**: +10%/레벨, 최대 3단계(+30%) | upgrades.json |
-| **종업원 최대 3명** | upgrades.json (`hire_waiter` max_level=3) |
-| **주방 확장 시 타일 시각적 변경** (layout[y][x]=3) | shop.py (`_apply_upgrade`) |
-| **평점↑ → 손님 스폰 빨라짐** (rating_factor 공식 변경) | shop.py |
-| **대기열 최대 6명** | settings.py (`MAX_WAITING_QUEUE=6`) |
-| obs[79]: 바텐더 고용 여부만 (배달 제거됨) | gym_env.py |
+| 변경 내용                                                      | 영향 파일                                       |
+| -------------------------------------------------------------- | ----------------------------------------------- |
+| **바텐더 듀얼 서브 시스템**: 음식+음료 모두 서빙해야 식사 시작 | customer.py, shop.py                            |
+| **배달 시스템 완전 삭제**                                      | shop.py, renderer.py, gym_env.py, upgrades.json |
+| **순이익 = 매장 판매 총 수입만** (상점 구매 비용 미차감)       | shop.py (`net_profit` property)                 |
+| **최종 스코어 = 순이익 × (1 + 평점/10)**                       | shop.py (`final_score` property)                |
+| **직원 속도 업그레이드**: +10%/레벨, 최대 3단계(+30%)          | upgrades.json                                   |
+| **종업원 최대 3명**                                            | upgrades.json (`hire_waiter` max_level=3)       |
+| **주방 확장 시 타일 시각적 변경** (layout[y][x]=3)             | shop.py (`_apply_upgrade`)                      |
+| **평점↑ → 손님 스폰 빨라짐** (rating_factor 공식 변경)         | shop.py                                         |
+| **대기열 최대 6명**                                            | settings.py (`MAX_WAITING_QUEUE=6`)             |
+| obs[79]: 바텐더 고용 여부만 (배달 제거됨)                      | gym_env.py                                      |
 
 ---
 
@@ -71,14 +71,14 @@
 
 ### Customer 상태 (customer.state)
 
-| 영어                 | 한글        | 설명                                   | 화면 표시         |
-| -------------------- | ----------- | -------------------------------------- | ----------------- |
-| `"walking_to_table"` | 테이블 이동 | 입구에서 배정된 테이블로 걷어가는 중   | 🚶 아이콘         |
-| `"waiting_to_order"` | 주문 대기   | 테이블에 앉았지만 아직 주문 안 받음    | `?!` 아이콘       |
-| `"order_taken"`      | 주문 접수됨 | 주문을 받았고, 음식이 오길 기다리는 중 | 메뉴 이름 표시    |
+| 영어                 | 한글        | 설명                                      | 화면 표시         |
+| -------------------- | ----------- | ----------------------------------------- | ----------------- |
+| `"walking_to_table"` | 테이블 이동 | 입구에서 배정된 테이블로 걷어가는 중      | 🚶 아이콘         |
+| `"waiting_to_order"` | 주문 대기   | 테이블에 앉았지만 아직 주문 안 받음       | `?!` 아이콘       |
+| `"order_taken"`      | 주문 접수됨 | 주문을 받았고, 음식이 오길 기다리는 중    | 메뉴 이름 표시    |
 | `"eating"`           | 식사 중     | 음식+음료 모두 서빙 완료 후 먹는 중 (5초) | `냐냐` 텍스트     |
-| `"leaving_happy"`    | 만족 퇴장   | 식사 후 결제하고 나가는 중             | 초록 텍스트       |
-| `"leaving_angry"`    | 화남 퇴장   | 인내심이 0이 되어 돈 안 내고 나감      | 빨간색, 벌금 -$10 |
+| `"leaving_happy"`    | 만족 퇴장   | 식사 후 결제하고 나가는 중                | 초록 텍스트       |
+| `"leaving_angry"`    | 화남 퇴장   | 인내심이 0이 되어 돈 안 내고 나감         | 빨간색, 벌금 -$10 |
 
 ### Employee 상태 (employee.state)
 
@@ -101,14 +101,14 @@
 
 ### Kitchen 상태 (조리 큐)
 
-| 영어               | 한글                | 설명                                          |
-| ------------------ | ------------------- | --------------------------------------------- |
-| `cooking`          | 조리 중             | 현재 조리되고 있는 요리 리스트                |
-| `ready`            | 완성 (대기)         | 조리 완료, 서버가 수거하길 대기               |
-| `cooking_capacity` | 조리 슬롯           | 요리사 수 (동시 조리 가능한 최대 수)          |
-| `storage_capacity` | 보관 용량           | 주방 타일 수 (완성 요리 보관 최대 수)         |
-| `can_accept`       | 접수 가능           | 조리 중 < cooking_capacity이면 True           |
-| `has_storage_space` | 보관 가능          | 완성 < storage_capacity이면 True              |
+| 영어                | 한글        | 설명                                  |
+| ------------------- | ----------- | ------------------------------------- |
+| `cooking`           | 조리 중     | 현재 조리되고 있는 요리 리스트        |
+| `ready`             | 완성 (대기) | 조리 완료, 서버가 수거하길 대기       |
+| `cooking_capacity`  | 조리 슬롯   | 요리사 수 (동시 조리 가능한 최대 수)  |
+| `storage_capacity`  | 보관 용량   | 주방 타일 수 (완성 요리 보관 최대 수) |
+| `can_accept`        | 접수 가능   | 조리 중 < cooking_capacity이면 True   |
+| `has_storage_space` | 보관 가능   | 완성 < storage_capacity이면 True      |
 
 > **보관이 가득 차면** 조리 완료된 요리도 주방에 남아 요리사가 차단됨 → 음식 수거 필요
 
@@ -197,17 +197,17 @@
 
 ### effect_type (업그레이드 효과 타입)
 
-| 값                 | 한글          | 효과                                |
-| ------------------ | ------------- | ----------------------------------- |
-| `"player_speed"`   | 이동속도      | 플레이어 속도 +effect_value%        |
-| `"kitchen_expand"` | 주방 확장     | 보관 용량 +1, 최대 요리사 +1        |
-| `"hire_chef"`      | 요리사 고용   | 요리사 +1 (주방 타일 수 필요)          |
-| `"cook_speed"`     | 조리 속도     | 조리 시간 단축 +effect_value%       |
-| `"buy_table"`      | 테이블 구매   | 새 테이블 1개 활성화                |
-| `"wealthy_bonus"`  | 부유 보너스   | 부유한 손님 등장 확률 +effect_value |
-| `"hire_waiter"`    | 종업원 고용   | AI 종업원 1명 추가                  |
-| `"hire_bartender"` | 바텐더 고용   | 음료 서비스 활성화                  |
-| `"employee_speed"` | 직원 속도     | 모든 직원 이동속도 +10%/레벨 (최대 3단계 +30%) |
+| 값                 | 한글        | 효과                                           |
+| ------------------ | ----------- | ---------------------------------------------- |
+| `"player_speed"`   | 이동속도    | 플레이어 속도 +effect_value%                   |
+| `"kitchen_expand"` | 주방 확장   | 보관 용량 +1, 최대 요리사 +1                   |
+| `"hire_chef"`      | 요리사 고용 | 요리사 +1 (주방 타일 수 필요)                  |
+| `"cook_speed"`     | 조리 속도   | 조리 시간 단축 +effect_value%                  |
+| `"buy_table"`      | 테이블 구매 | 새 테이블 1개 활성화                           |
+| `"wealthy_bonus"`  | 부유 보너스 | 부유한 손님 등장 확률 +effect_value            |
+| `"hire_waiter"`    | 종업원 고용 | AI 종업원 1명 추가                             |
+| `"hire_bartender"` | 바텐더 고용 | 음료 서비스 활성화                             |
+| `"employee_speed"` | 직원 속도   | 모든 직원 이동속도 +10%/레벨 (최대 3단계 +30%) |
 
 ### beverages.json 필드
 
@@ -289,7 +289,7 @@
 | `"grid_line"`         | (60, 60, 60)    | 격자선             | 타일 경계      |
 | `"player"`            | (50, 120, 220)  | 플레이어 (빈손)    | 파란색         |
 | `"player_carry"`      | (80, 160, 255)  | 플레이어 (운반 중) | 밝은 파란      |
-| `"customer"`          | (220, 180, 50)  | 일반 손님          | 노란색         |
+| `"customer"`          | (220, 180, 50)  | 학생/일반인        | 노란색         |
 | `"customer_angry"`    | (220, 80, 50)   | 화난 손님          | 빨간-주황      |
 | `"customer_wealthy"`  | (180, 120, 220) | 부유한 손님        | 보라           |
 | `"customer_vip"`      | (255, 215, 0)   | VIP 손님           | 금색           |
@@ -333,12 +333,12 @@
 
 ### Customer 스프라이트
 
-| 파일명                                        | 코드에서 조회 시점       | 설명                |
-| --------------------------------------------- | ------------------------ | ------------------- |
-| `customer/idle.png`                           | 기본 상태                | 앉아 있는 일반 손님 |
-| `customer/angry.png`                          | state == "leaving_angry" | 화난 표정           |
-| `customer/eating.png`                         | state == "eating"        | 먹는 모션           |
-| `customer/budget.png` ~ `customer/critic.png` | 유형별 (선택)            | 손님 유형별 외형    |
+| 파일명                                        | 코드에서 조회 시점       | 설명                  |
+| --------------------------------------------- | ------------------------ | --------------------- |
+| `customer/idle.png`                           | 기본 상태                | 앉아 있는 일반인 손님 |
+| `customer/angry.png`                          | state == "leaving_angry" | 화난 표정             |
+| `customer/eating.png`                         | state == "eating"        | 먹는 모션             |
+| `customer/budget.png` ~ `customer/critic.png` | 유형별 (선택)            | 손님 유형별 외형      |
 
 ### Employee 스프라이트
 
@@ -527,31 +527,31 @@ Shop.step(action) → [("take_order", 1.0), ("customer_payment", 45.0), ...]
 
 > 가중치 설정 위치: `algorithms/ppo/config.json` → `reward_shaping`
 
-| 이벤트 이름          | 한글 설명                  | value 의미        | 기본 가중치 | 발생 조건                            |
-| -------------------- | -------------------------- | ----------------- | ----------- | ------------------------------------ |
-| `take_order`         | 주문 받기                  | 1.0 (횟수)        | +8.0        | 테이블에서 주문 접수                 |
-| `submit_kitchen`     | 주방에 조리 요청           | 전달된 수 (float) | +5.0        | 주방에 주문 전달                     |
-| `pickup_food`        | 음식 픽업                  | 1.0               | +5.0        | 주방에서 음식 수거                   |
-| `serve_food`         | 음식 서빙                  | 1.0               | +15.0       | 음식 서빙 완료                       |
-| `pickup_drink`       | 음료 픽업                  | 1.0               | +3.0        | 바에서 음료 수거                     |
-| `serve_drink`        | 음료 서빙                  | 1.0               | +8.0        | 음료 서빙 완료                       |
-| `customer_payment`   | 손님 결제 완료             | 결제 금액 (float) | +1.0        | 손님 식사 완료 → 결제 (음식+팁+음료) |
-| `lost_customer`      | 손님 이탈                  | 1.0               | -15.0       | 손님 인내심 소진 → 화남 퇴장         |
-| `wrong_table`        | 잘못된 테이블에 서빙       | 1.0               | -2.0        | 다른 테이블 음식 서빙 시도           |
-| `trash`              | 음식 폐기                  | 1.0               | -1.0        | 쓰레기통으로 아이템 폐기             |
-| `trash_orphan`       | 고아 음식 폐기 (정리 보상) | 1.0               | +0.5        | 주인 없는 음식 수동 폐기             |
-| `orphan_cleared`     | 고아 음식 자동 제거        | 1.0               | 0.0         | 시스템이 자동으로 고아 음식 제거     |
-| `blocked_move`       | 이동 불가 (벽/장애물)      | 1.0               | -0.1        | 벽이나 장애물에 부딪힘               |
-| `idle_penalty`       | 아무 행동 안 함            | 1.0               | -0.3        | 대기(ACTION_NONE) 선택               |
-| `time_penalty`       | 매 스텝 시간 패널티        | 1.0               | -0.02       | 매 스텝마다 자동 부과                |
-| `buy_upgrade`        | 업그레이드 구매            | 1.0               | +2.0        | 업그레이드/메뉴 구매 성공            |
-| `food_unlock`        | 새 메뉴 해금               | 1.0               | +0.3        | 새로운 메뉴 아이템 해금              |
-| `no_upgrade`         | 업그레이드 불가 시         | 1.0               | 0.0         | 구매 불가 (돈 부족 / 이미 최대)      |
-| `win`                | 게임 승리                  | 1.0               | +200.0      | money ≥ target_money                 |
-| `game_end`           | 게임 종료 시 점수 계수     | final_score       | +0.01       | 에피소드 종료 시 최종 점수 반영      |
-| `net_profit_delta`   | 순이익 변화량 계수         | 이익 변화 (float) | +0.2        | 스텝 간 순이익 변화에 비례           |
-| `rating_delta`       | 평점 변화량 계수           | 평점 변화 (float) | +10.0       | 스텝 간 평점 변화에 비례             |
-| `final_score_delta`  | 최종 점수 변화량 계수      | 점수 변화 (float) | +0.05       | 스텝 간 최종 점수 변화에 비례        |
+| 이벤트 이름         | 한글 설명                  | value 의미        | 기본 가중치 | 발생 조건                            |
+| ------------------- | -------------------------- | ----------------- | ----------- | ------------------------------------ |
+| `take_order`        | 주문 받기                  | 1.0 (횟수)        | +8.0        | 테이블에서 주문 접수                 |
+| `submit_kitchen`    | 주방에 조리 요청           | 전달된 수 (float) | +5.0        | 주방에 주문 전달                     |
+| `pickup_food`       | 음식 픽업                  | 1.0               | +5.0        | 주방에서 음식 수거                   |
+| `serve_food`        | 음식 서빙                  | 1.0               | +15.0       | 음식 서빙 완료                       |
+| `pickup_drink`      | 음료 픽업                  | 1.0               | +3.0        | 바에서 음료 수거                     |
+| `serve_drink`       | 음료 서빙                  | 1.0               | +8.0        | 음료 서빙 완료                       |
+| `customer_payment`  | 손님 결제 완료             | 결제 금액 (float) | +1.0        | 손님 식사 완료 → 결제 (음식+팁+음료) |
+| `lost_customer`     | 손님 이탈                  | 1.0               | -15.0       | 손님 인내심 소진 → 화남 퇴장         |
+| `wrong_table`       | 잘못된 테이블에 서빙       | 1.0               | -2.0        | 다른 테이블 음식 서빙 시도           |
+| `trash`             | 음식 폐기                  | 1.0               | -1.0        | 쓰레기통으로 아이템 폐기             |
+| `trash_orphan`      | 고아 음식 폐기 (정리 보상) | 1.0               | +0.5        | 주인 없는 음식 수동 폐기             |
+| `orphan_cleared`    | 고아 음식 자동 제거        | 1.0               | 0.0         | 시스템이 자동으로 고아 음식 제거     |
+| `blocked_move`      | 이동 불가 (벽/장애물)      | 1.0               | -0.1        | 벽이나 장애물에 부딪힘               |
+| `idle_penalty`      | 아무 행동 안 함            | 1.0               | -0.3        | 대기(ACTION_NONE) 선택               |
+| `time_penalty`      | 매 스텝 시간 패널티        | 1.0               | -0.02       | 매 스텝마다 자동 부과                |
+| `buy_upgrade`       | 업그레이드 구매            | 1.0               | +2.0        | 업그레이드/메뉴 구매 성공            |
+| `food_unlock`       | 새 메뉴 해금               | 1.0               | +0.3        | 새로운 메뉴 아이템 해금              |
+| `no_upgrade`        | 업그레이드 불가 시         | 1.0               | 0.0         | 구매 불가 (돈 부족 / 이미 최대)      |
+| `win`               | 게임 승리                  | 1.0               | +200.0      | money ≥ target_money                 |
+| `game_end`          | 게임 종료 시 점수 계수     | final_score       | +0.01       | 에피소드 종료 시 최종 점수 반영      |
+| `net_profit_delta`  | 순이익 변화량 계수         | 이익 변화 (float) | +0.2        | 스텝 간 순이익 변화에 비례           |
+| `rating_delta`      | 평점 변화량 계수           | 평점 변화 (float) | +10.0       | 스텝 간 평점 변화에 비례             |
+| `final_score_delta` | 최종 점수 변화량 계수      | 점수 변화 (float) | +0.05       | 스텝 간 최종 점수 변화에 비례        |
 
 ### 보상 계산 예시
 
@@ -588,41 +588,41 @@ reward = -30.0 * 1.0  # = -30.0
 
 ### 인덱스별 상세
 
-| 인덱스 | 이름             | 정규화                               | 의미                                 |
-| ------ | ---------------- | ------------------------------------ | ------------------------------------ |
-| 0      | player_x         | x / (width × 64)                     | 플레이어 X 위치                      |
-| 1      | player_y         | y / (height × 64)                    | 플레이어 Y 위치                      |
-| 2      | player_facing    | facing / 3.0                         | 바라보는 방향 (0~3)                  |
-| 3      | carry_type       | 0/0.33/0.66/1.0                      | 빈손/주문/음식/음료                  |
-| 4      | carry_table_id   | table_id / max_tables                | 운반 중인 아이템의 목적 테이블       |
-| 5      | carry_menu_id    | MENU_IDS[id] / 9                     | 운반 중인 아이템의 메뉴 종류         |
-| 6~9    | move_state       | 벽 충돌/컨텍스트 플래그              | 이동 관련 상태 (4차원)               |
-| 10~15  | table_0          | 아래 참조                            | 테이블 0번 상태 (6차원)              |
-| 16~21  | table_1          |                                      | 테이블 1번 상태                      |
-| 22~27  | table_2          |                                      | 테이블 2번 상태                      |
-| 28~33  | table_3          |                                      | 테이블 3번 상태                      |
-| 34~39  | table_4          |                                      | 테이블 4번 (구매 후)                 |
-| 40~45  | table_5          |                                      | 테이블 5번                           |
-| 46~51  | table_6          |                                      | 테이블 6번                           |
-| 52~57  | table_7          |                                      | 테이블 7번                           |
-| 58     | kitchen_cooking  | num_cooking / cooking_capacity       | 주방 조리율 (요리사 대비)            |
-| 59     | kitchen_ready    | len(ready) / storage_capacity        | 주방 보관율 (타일 대비)              |
-| 60     | kitchen_load     | total / (cooking + storage capacity) | 주방 총 부하                         |
-| 61~62  | kitchen_pos      | 정규화 좌표                          | 주방 카운터 위치                     |
-| 63~64  | bar_pos          | 정규화 좌표                          | 바 카운터 위치                       |
-| 65~66  | trash_pos        | 정규화 좌표                          | 쓰레기통 위치                        |
-| 67~68  | target_dir       | -1.0~1.0                             | 타겟 방향 벡터 (X, Y)               |
-| 69     | queue_ratio      | len(queue) / MAX_WAITING_QUEUE       | 대기열 비율                          |
-| 70     | first_patience   | 0.0~1.0                              | 대기열 첫 손님 인내심 비율           |
-| 71     | queue_full       | 0.0 / 1.0                            | 대기열 만석 여부                     |
-| 72     | money_ratio      | min(1, money / target)               | 목표 대비 현재 돈                    |
-| 73     | day_ratio        | current_day / day_limit              | 시간 경과 비율                       |
-| 74     | time_remaining   | 1 - elapsed/total                    | 남은 시간 비율                       |
-| 75     | shop_rating      | 0.0~1.0                              | 매장 평점                            |
-| 76     | can_afford       | 0.0 / 1.0                            | 구매 가능 업그레이드 존재 여부       |
-| 77     | net_profit_ratio | min(1, net_profit / target)          | 순이익 비율                          |
-| 78     | employee_count   | len(employees) / 4.0                 | 종업원 비율                          |
-| 79     | bartender_hired  | 0.0 / 1.0                            | 바텐더 고용 여부                     |
+| 인덱스 | 이름             | 정규화                               | 의미                           |
+| ------ | ---------------- | ------------------------------------ | ------------------------------ |
+| 0      | player_x         | x / (width × 64)                     | 플레이어 X 위치                |
+| 1      | player_y         | y / (height × 64)                    | 플레이어 Y 위치                |
+| 2      | player_facing    | facing / 3.0                         | 바라보는 방향 (0~3)            |
+| 3      | carry_type       | 0/0.33/0.66/1.0                      | 빈손/주문/음식/음료            |
+| 4      | carry_table_id   | table_id / max_tables                | 운반 중인 아이템의 목적 테이블 |
+| 5      | carry_menu_id    | MENU_IDS[id] / 9                     | 운반 중인 아이템의 메뉴 종류   |
+| 6~9    | move_state       | 벽 충돌/컨텍스트 플래그              | 이동 관련 상태 (4차원)         |
+| 10~15  | table_0          | 아래 참조                            | 테이블 0번 상태 (6차원)        |
+| 16~21  | table_1          |                                      | 테이블 1번 상태                |
+| 22~27  | table_2          |                                      | 테이블 2번 상태                |
+| 28~33  | table_3          |                                      | 테이블 3번 상태                |
+| 34~39  | table_4          |                                      | 테이블 4번 (구매 후)           |
+| 40~45  | table_5          |                                      | 테이블 5번                     |
+| 46~51  | table_6          |                                      | 테이블 6번                     |
+| 52~57  | table_7          |                                      | 테이블 7번                     |
+| 58     | kitchen_cooking  | num_cooking / cooking_capacity       | 주방 조리율 (요리사 대비)      |
+| 59     | kitchen_ready    | len(ready) / storage_capacity        | 주방 보관율 (타일 대비)        |
+| 60     | kitchen_load     | total / (cooking + storage capacity) | 주방 총 부하                   |
+| 61~62  | kitchen_pos      | 정규화 좌표                          | 주방 카운터 위치               |
+| 63~64  | bar_pos          | 정규화 좌표                          | 바 카운터 위치                 |
+| 65~66  | trash_pos        | 정규화 좌표                          | 쓰레기통 위치                  |
+| 67~68  | target_dir       | -1.0~1.0                             | 타겟 방향 벡터 (X, Y)          |
+| 69     | queue_ratio      | len(queue) / MAX_WAITING_QUEUE       | 대기열 비율                    |
+| 70     | first_patience   | 0.0~1.0                              | 대기열 첫 손님 인내심 비율     |
+| 71     | queue_full       | 0.0 / 1.0                            | 대기열 만석 여부               |
+| 72     | money_ratio      | min(1, money / target)               | 목표 대비 현재 돈              |
+| 73     | day_ratio        | current_day / day_limit              | 시간 경과 비율                 |
+| 74     | time_remaining   | 1 - elapsed/total                    | 남은 시간 비율                 |
+| 75     | shop_rating      | 0.0~1.0                              | 매장 평점                      |
+| 76     | can_afford       | 0.0 / 1.0                            | 구매 가능 업그레이드 존재 여부 |
+| 77     | net_profit_ratio | min(1, net_profit / target)          | 순이익 비율                    |
+| 78     | employee_count   | len(employees) / 4.0                 | 종업원 비율                    |
+| 79     | bartender_hired  | 0.0 / 1.0                            | 바텐더 고용 여부               |
 
 ### 테이블별 6차원 (table_i)
 

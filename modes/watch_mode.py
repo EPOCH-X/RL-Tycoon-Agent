@@ -21,10 +21,34 @@ from core.shop import Shop
 from core.ranking import RankingManager
 from rendering.asset_manager import AssetManager
 from rendering.renderer import Renderer
-from ai.agent import load_agent
+from ai.agent import load_agent, _detect_algo_from_path
 from ai.gym_env import build_observation
 
 ACTION_NAMES = ["↑위", "↓아래", "←좌", "→우", "★상호작용", "·대기", "₩업그레이드"]
+
+
+def _auto_find_best_model() -> tuple[str | None, str | None]:
+    """models/ 디렉토리에서 best_model을 자동 탐색합니다."""
+    models_dir = "models"
+    if not os.path.isdir(models_dir):
+        return None, None
+    candidates = []
+    for root, _dirs, files in os.walk(models_dir):
+        for f in files:
+            if f == "best_model.zip":
+                candidates.append(os.path.join(root, f))
+            elif f == "best_model.pt":
+                candidates.append(os.path.join(root, f[:-3]))
+    if not candidates:
+        return None, None
+    path = candidates[0]
+    algo = _detect_algo_from_path(path)
+    cfg_path = os.path.join(os.path.dirname(path), "train_config_used.json")
+    if os.path.isfile(cfg_path):
+        with open(cfg_path, encoding="utf-8") as fp:
+            cfg = json.load(fp)
+        algo = cfg.get("algorithm", algo) or algo
+    return path, algo
 
 
 class WatchMode(BaseMode):
@@ -32,6 +56,12 @@ class WatchMode(BaseMode):
     def __init__(self, *, model_path=None, algo_name=None,
                  target_money=None, day_limit=None,
                  speed_multiplier: float = 1.0):
+        # Auto-find model if not specified
+        if model_path is None:
+            model_path, algo_name = _auto_find_best_model()
+            if model_path:
+                print(f"  [관전 모드] 자동 탐지 모델: {model_path} ({algo_name})")
+
         # Auto-detect day_limit from saved model config if not specified
         if day_limit is None and model_path:
             cfg_path = os.path.join(os.path.dirname(model_path),
@@ -49,10 +79,13 @@ class WatchMode(BaseMode):
         super().__init__(w, h, title="RL 타이쿤 – 관전 모드")
 
         self.am = AssetManager()
-        self.renderer = Renderer(self.am)
+        self.am.ensure_loaded()
+        self.renderer = Renderer(self.am, background_key="sample3")
         self.ranking = RankingManager()
 
         self.agent = load_agent(model_path, algo_name=algo_name)
+        if hasattr(self.agent, 'deterministic'):
+            self.agent.deterministic = False  # 기본: 확률적 정책
         self.speed_multiplier = max(0.5, speed_multiplier)
 
         self._model_path = model_path

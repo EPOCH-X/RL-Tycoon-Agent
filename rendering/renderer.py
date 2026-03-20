@@ -1,7 +1,17 @@
-"""Renderer – draws the full game view for one Shop instance.
+"""Renderer – draws the full game view using image assets from data/images/.
 
-All Pygame drawing is centralised here so that the core/ modules stay
-rendering-free and can be used headlessly by the RL environment.
+Layer order (back to front):
+  1. Background image (mode-dependent)
+  2. Wall tiles + Kitchen back-wall tiles (주방벽면)
+  3. Bar counter tiles
+  4. Chef images (요리사/1-6.png)
+  5. Kitchen counter tiles (주방.png) + cooking overlays
+  6. Trash can tiles
+  7. Hall table tiles + Purchasable ghost tables
+  8. Customer sprites (seated/waiting/eating)
+  9. Chair tiles
+  10. Player / Employees / Walking customers / Food & Drink items
+  11. UI overlays
 """
 
 import pygame
@@ -9,16 +19,31 @@ from config.settings import TILE_SIZE, UI_HEIGHT, COLORS
 from core.customer import CustomerState
 from rendering.asset_manager import AssetManager
 
+# Customer type JSON id → image folder name
+_CUST_TYPE_FOLDER = {
+    "budget": "budget",
+    "normal": "normal",
+    "tourist": "tourist",
+    "wealthy": "richman",
+    "vip": "vip",
+    "critic": "critic",
+}
+
 
 class Renderer:
-    """Draws a Shop's state onto a Pygame surface."""
+    """Draws a Shop's state onto a Pygame surface using image assets."""
 
-    def __init__(self, asset_manager: AssetManager):
+    def __init__(self, asset_manager: AssetManager, *,
+                 background_key: str = "sample1"):
         self.am = asset_manager
+        self.background_key = background_key
         self._fonts_ok = False
         self.font_sm: pygame.font.Font | None = None
         self.font_md: pygame.font.Font | None = None
         self.font_lg: pygame.font.Font | None = None
+        self._scaled_bg: pygame.Surface | None = None
+        self._scaled_bg_key: str | None = None
+        self._scaled_bg_size: tuple[int, int] | None = None
 
     # ── lazy font init (needs pygame.init first) ─
     def _ensure_fonts(self):
@@ -31,7 +56,6 @@ class Renderer:
 
     @staticmethod
     def _find_korean_font():
-        """Find a Korean-supporting system font."""
         available = [f.lower() for f in pygame.font.get_fonts()]
         korean_fonts = ["malgungothic", "malgunbd", "gulim", "dotum",
                         "batang", "nanumgothic", "nanumbarungothic",
@@ -46,59 +70,98 @@ class Renderer:
     # ═══════════════════════════════════════════════
     def draw(self, surface: pygame.Surface, shop, *,
              offset_x: int = 0, offset_y: int = 0):
-        """Draw the complete shop view (map + entities + UI)."""
+        """Draw the complete shop view with proper layer ordering."""
         self._ensure_fonts()
-        self._draw_map(surface, shop, offset_x, offset_y)
-        self._draw_tables(surface, shop, offset_x, offset_y)
-        self._draw_purchasable_tables(surface, shop, offset_x, offset_y)
-        self._draw_kitchen(surface, shop, offset_x, offset_y)
-        self._draw_bar(surface, shop, offset_x, offset_y)
-        self._draw_trash_cans(surface, shop, offset_x, offset_y)
-        self._draw_customers(surface, shop, offset_x, offset_y)
-        self._draw_leaving_customers(surface, shop, offset_x, offset_y)
-        self._draw_waiting_queue(surface, shop, offset_x, offset_y)
-        self._draw_employees(surface, shop, offset_x, offset_y)
-        shop.player.render(surface, self.am, offset_x, offset_y)
-        self._draw_carry_labels(surface, shop, offset_x, offset_y)
-        self._draw_floating_texts(surface, shop, offset_x, offset_y)
-        self._draw_ui(surface, shop, offset_x, offset_y)
-        self._draw_upgrade_panel(surface, shop, offset_x, offset_y)
-        self._draw_trait_popup(surface, shop, offset_x, offset_y)
+        self.am.ensure_loaded()
+        ox, oy = offset_x, offset_y
+
+        # Layer 1: Background
+        self._draw_background(surface, shop, ox, oy)
+        # Layer 2: Wall tiles + Kitchen back-wall
+        self._draw_walls(surface, shop, ox, oy)
+        # Layer 3: Bar counters
+        self._draw_bar(surface, shop, ox, oy)
+        # Layer 4: Chef images
+        self._draw_chefs(surface, shop, ox, oy)
+        # Layer 5: Kitchen counter tiles + cooking overlays
+        self._draw_kitchen(surface, shop, ox, oy)
+        # Layer 6: Trash cans
+        self._draw_trash_cans(surface, shop, ox, oy)
+        # Layer 7: Hall tables
+        self._draw_tables(surface, shop, ox, oy)
+        self._draw_purchasable_tables(surface, shop, ox, oy)
+        # Layer 8: Seated customers
+        self._draw_customers(surface, shop, ox, oy)
+        # Layer 9: Chairs
+        self._draw_chairs(surface, shop, ox, oy)
+        # Layer 10: Moving entities
+        self._draw_leaving_customers(surface, shop, ox, oy)
+        self._draw_waiting_queue(surface, shop, ox, oy)
+        self._draw_employees(surface, shop, ox, oy)
+        shop.player.render(surface, self.am, ox, oy)
+        # Overlays
+        self._draw_carry_labels(surface, shop, ox, oy)
+        self._draw_floating_texts(surface, shop, ox, oy)
+        self._draw_ui(surface, shop, ox, oy)
+        self._draw_upgrade_panel(surface, shop, ox, oy)
+        self._draw_trait_popup(surface, shop, ox, oy)
 
     # ═══════════════════════════════════════════════
-    #  Map tiles
+    #  Layer 1: Background
     # ═══════════════════════════════════════════════
-    def _draw_map(self, surface, shop, ox, oy):
+    def _draw_background(self, surface, shop, ox, oy):
+        map_w = shop.grid_width * TILE_SIZE
+        map_h = shop.grid_height * TILE_SIZE
+        bg_raw = self.am.get_background(self.background_key)
+        if bg_raw:
+            target_size = (map_w, map_h)
+            if (self._scaled_bg_key != self.background_key
+                    or self._scaled_bg_size != target_size):
+                self._scaled_bg = pygame.transform.smoothscale(
+                    bg_raw, target_size)
+                self._scaled_bg_key = self.background_key
+                self._scaled_bg_size = target_size
+            surface.blit(self._scaled_bg, (ox, oy))
+        else:
+            pygame.draw.rect(surface, COLORS["floor"],
+                             (ox, oy, map_w, map_h))
+
+    # ═══════════════════════════════════════════════
+    #  Layer 2: Wall tiles + Kitchen back-wall
+    # ═══════════════════════════════════════════════
+    def _draw_walls(self, surface, shop, ox, oy):
+        kitchen_xs = {pos[0] for pos in shop.kitchen_counter_positions}
         for y, row in enumerate(shop.layout):
             for x, tile in enumerate(row):
-                rect = pygame.Rect(x * TILE_SIZE + ox,
-                                   y * TILE_SIZE + oy,
-                                   TILE_SIZE, TILE_SIZE)
-                if tile == 0:
-                    color = COLORS["floor"]
-                elif tile == 4:
-                    color = COLORS.get("bar", (100, 60, 140))
-                elif tile == 5:
-                    color = COLORS.get("trash_can", (120, 100, 80))
-                else:
-                    color = COLORS["wall"]
-                pygame.draw.rect(surface, color, rect)
-                pygame.draw.rect(surface, COLORS["grid_line"], rect, 1)
+                if tile != 1:
+                    continue
+                # Only draw kitchen back-wall tiles (decorative);
+                # plain wall tiles are covered by the background image.
+                if (y + 1 < len(shop.layout)
+                        and x in kitchen_xs
+                        and shop.layout[y + 1][x] == 3):
+                    rect = pygame.Rect(x * TILE_SIZE + ox,
+                                       y * TILE_SIZE + oy,
+                                       TILE_SIZE, TILE_SIZE)
+                    img = (self.am.tile_kitchen_wall1
+                           if x % 2 == 0
+                           else self.am.tile_kitchen_wall2)
+                    if img:
+                        surface.blit(img, rect.topleft)
 
     # ═══════════════════════════════════════════════
-    #  Tables (active)
+    #  Layer 7: Tables (active)
     # ═══════════════════════════════════════════════
     def _draw_tables(self, surface, shop, ox, oy):
         for table in shop.tables:
             rect = pygame.Rect(table.grid_x * TILE_SIZE + ox,
                                table.grid_y * TILE_SIZE + oy,
                                TILE_SIZE, TILE_SIZE)
-            col = COLORS["table_occupied"] if table.is_occupied else COLORS["table"]
-            pygame.draw.rect(surface, col, rect)
-            pygame.draw.rect(surface, COLORS["grid_line"], rect, 1)
-
-            lbl = self.font_sm.render(f"T{table.table_id}", True, COLORS["text"])
-            surface.blit(lbl, lbl.get_rect(center=rect.center))
+            if self.am.tile_table:
+                surface.blit(self.am.tile_table, rect.topleft)
+            else:
+                col = COLORS["table_occupied"] if table.is_occupied else COLORS["table"]
+                pygame.draw.rect(surface, col, rect)
 
     # ═══════════════════════════════════════════════
     #  Purchasable table ghosts
@@ -108,21 +171,53 @@ class Renderer:
             rect = pygame.Rect(tdata["grid_x"] * TILE_SIZE + ox,
                                tdata["grid_y"] * TILE_SIZE + oy,
                                TILE_SIZE, TILE_SIZE)
-            ghost = pygame.Surface((TILE_SIZE, TILE_SIZE), pygame.SRCALPHA)
-            ghost.fill((139, 90, 43, 50))
-            surface.blit(ghost, rect.topleft)
-            pygame.draw.rect(surface, (100, 70, 30), rect, 2)
+            if self.am.tile_table:
+                ghost = self.am.tile_table.copy()
+                ghost.set_alpha(80)
+                surface.blit(ghost, rect.topleft)
+            else:
+                ghost = pygame.Surface((TILE_SIZE, TILE_SIZE), pygame.SRCALPHA)
+                ghost.fill((139, 90, 43, 50))
+                surface.blit(ghost, rect.topleft)
             lbl = self.font_sm.render("$", True, (200, 180, 100))
             surface.blit(lbl, lbl.get_rect(center=rect.center))
 
     # ═══════════════════════════════════════════════
-    #  Kitchen counters (per-tile: chef + food name + gauge)
+    #  Layer 9: Chairs (drawn on top of customers)
+    # ═══════════════════════════════════════════════
+    def _draw_chairs(self, surface, shop, ox, oy):
+        if not self.am.tile_chair:
+            return
+        for table in shop.tables:
+            if not table.is_occupied:
+                continue
+            rect = pygame.Rect(table.grid_x * TILE_SIZE + ox,
+                               table.grid_y * TILE_SIZE + oy,
+                               TILE_SIZE, TILE_SIZE)
+            surface.blit(self.am.tile_chair, rect.topleft)
+
+    # ═══════════════════════════════════════════════
+    #  Layer 4: Chef images (요리사/1-6.png)
+    # ═══════════════════════════════════════════════
+    def _draw_chefs(self, surface, shop, ox, oy):
+        positions = sorted(shop.kitchen_counter_positions)
+        for i in range(min(shop.num_chefs, len(positions))):
+            pos = positions[i]
+            # Place chef above kitchen counter: shift up by half tile
+            # so the belly/waist aligns with the counter top
+            chef_x = pos[0] * TILE_SIZE + ox
+            chef_y = pos[1] * TILE_SIZE + oy - TILE_SIZE // 2
+            chef_img = self.am.get_chef_image(i)
+            if chef_img:
+                surface.blit(chef_img, (chef_x, chef_y))
+
+    # ═══════════════════════════════════════════════
+    #  Layer 5: Kitchen counters + cooking overlays
     # ═══════════════════════════════════════════════
     def _draw_kitchen(self, surface, shop, ox, oy):
         kitchen = shop.kitchen
         positions = sorted(shop.kitchen_counter_positions)
 
-        # Assign items to tiles: cooking first, then ready
         tile_slots: list[tuple[str, dict] | None] = [None] * len(positions)
         idx = 0
         for order in kitchen.cooking:
@@ -138,37 +233,36 @@ class Renderer:
             rect = pygame.Rect(pos[0] * TILE_SIZE + ox,
                                pos[1] * TILE_SIZE + oy,
                                TILE_SIZE, TILE_SIZE)
-            slot = tile_slots[i] if i < len(tile_slots) else None
-
-            # Tile background colour
-            if slot and slot[0] == "ready":
-                col = COLORS["kitchen_ready"]
-            elif slot and slot[0] == "cooking":
-                col = COLORS["kitchen_cooking"]
+            # Kitchen counter tile image
+            if self.am.tile_kitchen:
+                surface.blit(self.am.tile_kitchen, rect.topleft)
             else:
-                col = COLORS["kitchen"]
-            pygame.draw.rect(surface, col, rect)
-            pygame.draw.rect(surface, COLORS["grid_line"], rect, 1)
+                slot = tile_slots[i] if i < len(tile_slots) else None
+                if slot and slot[0] == "ready":
+                    col = COLORS["kitchen_ready"]
+                elif slot and slot[0] == "cooking":
+                    col = COLORS["kitchen_cooking"]
+                else:
+                    col = COLORS["kitchen"]
+                pygame.draw.rect(surface, col, rect)
 
+            slot = tile_slots[i] if i < len(tile_slots) else None
             if slot is None:
                 continue
 
             state, data = slot
 
             if state == "cooking":
-                # Chef indicator (small yellow circle)
-                pygame.draw.circle(
-                    surface, (255, 220, 130),
-                    (rect.x + 12, rect.y + 12), 7)
-                pygame.draw.circle(
-                    surface, (180, 140, 60),
-                    (rect.x + 12, rect.y + 12), 7, 1)
-
-                # Food name (Korean)
-                name = data["menu_item"]["name"]
-                nm = self.font_sm.render(name[:4], True, (255, 255, 255))
-                surface.blit(nm, nm.get_rect(
-                    centerx=rect.centerx, top=rect.y + 4))
+                # Food icon overlay
+                food_id = data["menu_item"].get("id", "")
+                food_icon = self.am.get_food_icon(food_id)
+                if food_icon:
+                    surface.blit(food_icon, (rect.x + 16, rect.y + 2))
+                else:
+                    name = data["menu_item"]["name"]
+                    nm = self.font_sm.render(name[:4], True, (255, 255, 255))
+                    surface.blit(nm, nm.get_rect(
+                        centerx=rect.centerx, top=rect.y + 4))
 
                 # Table ID
                 tid = self.font_sm.render(
@@ -184,46 +278,112 @@ class Renderer:
                 pygame.draw.rect(surface, (60, 60, 60), (bx, by, bw, 8))
                 pygame.draw.rect(surface, (80, 220, 80),
                                  (bx, by, int(bw * ratio), 8))
-
-                # Percentage text
                 pct = self.font_sm.render(
                     f"{int(ratio * 100)}%", True, (200, 200, 200))
                 surface.blit(pct, pct.get_rect(
                     centerx=rect.centerx, bottom=rect.bottom - 14))
 
             elif state == "ready":
-                # "완성" label
                 done = self.font_sm.render("완성", True, (255, 200, 80))
                 surface.blit(done, (rect.x + 2, rect.y + 2))
-
-                # Food name (Korean)
-                name = data["menu_item"]["name"]
-                nm = self.font_sm.render(name[:4], True, (255, 255, 100))
-                surface.blit(nm, nm.get_rect(center=rect.center))
-
-                # Table ID
+                food_id = data["menu_item"].get("id", "")
+                food_icon = self.am.get_food_icon(food_id)
+                if food_icon:
+                    surface.blit(food_icon, (rect.x + 16, rect.centery - 16))
+                else:
+                    name = data["menu_item"]["name"]
+                    nm = self.font_sm.render(name[:4], True, (255, 255, 100))
+                    surface.blit(nm, nm.get_rect(center=rect.center))
                 tid = self.font_sm.render(
                     f"T{data['table_id']}", True, (180, 180, 180))
                 surface.blit(tid, tid.get_rect(
                     centerx=rect.centerx, bottom=rect.bottom - 4))
 
     # ═══════════════════════════════════════════════
-    #  Trash cans
+    #  Layer 6: Trash cans
     # ═══════════════════════════════════════════════
     def _draw_trash_cans(self, surface, shop, ox, oy):
         for pos in shop.trash_can_positions:
             rect = pygame.Rect(pos[0] * TILE_SIZE + ox,
                                pos[1] * TILE_SIZE + oy,
                                TILE_SIZE, TILE_SIZE)
-            col = COLORS.get("trash_can", (120, 100, 80))
-            pygame.draw.rect(surface, col, rect)
-            pygame.draw.rect(surface, COLORS["grid_line"], rect, 1)
-            lbl = self.font_sm.render("🗑", True, COLORS["text"])
-            surface.blit(lbl, lbl.get_rect(center=rect.center))
+            if self.am.tile_trash:
+                surface.blit(self.am.tile_trash, rect.topleft)
+            else:
+                col = COLORS.get("trash_can", (120, 100, 80))
+                pygame.draw.rect(surface, col, rect)
 
     # ═══════════════════════════════════════════════
-    #  Customers (drawn on their table position)
+    #  Layer 8: Customers (drawn at their table position)
     # ═══════════════════════════════════════════════
+    @staticmethod
+    def _customer_sprite_key(cust) -> str:
+        ctype_id = cust.customer_type.get("id", "normal")
+        folder = _CUST_TYPE_FOLDER.get(ctype_id, ctype_id)
+        return f"customer_{folder}"
+
+    @staticmethod
+    def _customer_anim_state(cust) -> str:
+        state = cust.state
+        if state == CustomerState.WALKING_TO_TABLE:
+            # walk_back = moving UP (away from camera, toward tables)
+            return "walk_back"
+        elif state == CustomerState.WAITING_TO_ORDER:
+            return "sit_wait_order_front"
+        elif state == CustomerState.ORDER_TAKEN:
+            return "sit_wait_food_front"
+        elif state == CustomerState.EATING:
+            return "sit_eating_front"
+        elif state == CustomerState.LEAVING_HAPPY:
+            return "exit_happy_front"
+        elif state == CustomerState.LEAVING_ANGRY:
+            return "exit_angry_front"
+        elif state == CustomerState.WAITING_OUTSIDE:
+            return "stand_wait_order_back"
+        elif state == CustomerState.WALKING_TO_EXIT:
+            # walk_front = moving DOWN (toward camera, toward exit)
+            if cust._happy:
+                return "walk_front"
+            return "walk_front"
+        return "walk_front"
+
+    def _draw_customer_sprite(self, surface, cust, cx, cy):
+        """Draw a single customer with sprite or fallback."""
+        sprite_key = self._customer_sprite_key(cust)
+        anim_state = self._customer_anim_state(cust)
+        rect = pygame.Rect(cx, cy, TILE_SIZE, TILE_SIZE)
+
+        # Fallback chain: try primary state, then back variant, then walk_front
+        if self.am.has_sprite(sprite_key, anim_state):
+            frame = self.am.get_frame(
+                sprite_key, anim_state, cust.animation_frame)
+            surface.blit(frame, rect.topleft)
+        elif anim_state.endswith("_front"):
+            back_state = anim_state.replace("_front", "_back")
+            if self.am.has_sprite(sprite_key, back_state):
+                frame = self.am.get_frame(
+                    sprite_key, back_state, cust.animation_frame)
+                surface.blit(frame, rect.topleft)
+            elif self.am.has_sprite(sprite_key, "walk_front"):
+                frame = self.am.get_frame(
+                    sprite_key, "walk_front", cust.animation_frame)
+                surface.blit(frame, rect.topleft)
+            else:
+                self._draw_customer_fallback(surface, cust, rect)
+        elif self.am.has_sprite(sprite_key, "walk_front"):
+            frame = self.am.get_frame(
+                sprite_key, "walk_front", cust.animation_frame)
+            surface.blit(frame, rect.topleft)
+        else:
+            self._draw_customer_fallback(surface, cust, rect)
+
+    @staticmethod
+    def _draw_customer_fallback(surface, cust, rect):
+        margin = TILE_SIZE // 5
+        body = rect.inflate(-margin * 2, -margin * 2)
+        pygame.draw.rect(surface, cust.color, body)
+        pygame.draw.rect(surface, (0, 0, 0), body, 1)
+
     def _draw_customers(self, surface, shop, ox, oy):
         for table in shop.tables:
             cust = table.customer
@@ -232,31 +392,19 @@ class Renderer:
 
             cx = cust.pixel_x + ox
             cy = cust.pixel_y + oy
-            tile_rect = pygame.Rect(cx, cy, TILE_SIZE, TILE_SIZE)
+            self._draw_customer_sprite(surface, cust, cx, cy)
 
-            margin = TILE_SIZE // 5
-            body = tile_rect.inflate(-margin * 2, -margin * 2)
-            pygame.draw.rect(surface, cust.color, body)
-            pygame.draw.rect(surface, (0, 0, 0), body, 1)
-
-            if cust.state == CustomerState.WALKING_TO_TABLE:
-                icon = self.font_sm.render("🚶", True, (200, 200, 200))
-            elif cust.state == CustomerState.WAITING_TO_ORDER:
-                icon = self.font_sm.render("?!", True, (255, 255, 255))
-            elif cust.state == CustomerState.ORDER_TAKEN:
-                lbl = cust.menu_item["name"][:3]
-                icon = self.font_sm.render(lbl, True, (200, 200, 100))
-            elif cust.state == CustomerState.EATING:
-                icon = self.font_sm.render("냠냠", True, (100, 255, 100))
-            else:
-                icon = self.font_sm.render("...", True, (150, 150, 150))
-            surface.blit(icon, icon.get_rect(center=body.center))
-
-            # Drink indicator (top-right)
+            # Drink indicator
             if cust.drink_item and not cust.drink_served:
-                di = self.font_sm.render("음", True, (180, 100, 255))
-                surface.blit(di, (cx + TILE_SIZE - 14, cy + 2))
+                drink_id = cust.drink_item.get("id", "")
+                drink_icon = self.am.get_drink_icon(drink_id)
+                if drink_icon:
+                    surface.blit(drink_icon, (cx + TILE_SIZE - 16, cy))
+                else:
+                    di = self.font_sm.render("음", True, (180, 100, 255))
+                    surface.blit(di, (cx + TILE_SIZE - 14, cy + 2))
 
+            # Patience bar
             if cust.state in (CustomerState.WAITING_TO_ORDER,
                               CustomerState.ORDER_TAKEN,
                               CustomerState.WALKING_TO_TABLE):
@@ -279,34 +427,17 @@ class Renderer:
         for cust in shop.leaving_customers:
             cx = cust.pixel_x + ox
             cy = cust.pixel_y + oy
-            margin = TILE_SIZE // 5
-            body = pygame.Rect(cx + margin, cy + margin,
-                               TILE_SIZE - margin * 2, TILE_SIZE - margin * 2)
-            if cust._happy:
-                col = (100, 220, 100)  # green tint for happy
-            else:
-                col = COLORS.get("customer_angry", (220, 80, 50))
-            pygame.draw.rect(surface, col, body)
-            pygame.draw.rect(surface, (0, 0, 0), body, 1)
-            icon_text = "😊" if cust._happy else "😡"
-            icon = self.font_sm.render(icon_text, True, (255, 255, 255))
-            surface.blit(icon, icon.get_rect(center=body.center))
+            self._draw_customer_sprite(surface, cust, cx, cy)
 
     def _draw_waiting_queue(self, surface, shop, ox, oy):
         if not shop.waiting_queue:
             return
         ex = int(shop.entrance_x) + ox
         ey = int(shop.entrance_y) + oy
-        # Draw each waiting customer in a row near the entrance
         for i, cust in enumerate(shop.waiting_queue):
-            # Stack vertically below entrance, offset by index
             cx = ex + (i % 2) * (TILE_SIZE + 4)
             cy = ey + (i // 2) * (TILE_SIZE + 4)
-            body = pygame.Rect(cx + 8, cy + 8, TILE_SIZE - 16, TILE_SIZE - 16)
-            pygame.draw.rect(surface, cust.color, body)
-            pygame.draw.rect(surface, (0, 0, 0), body, 1)
-            icon = self.font_sm.render("...", True, (200, 200, 200))
-            surface.blit(icon, icon.get_rect(center=body.center))
+            self._draw_customer_sprite(surface, cust, cx, cy)
             # Patience bar
             bw = TILE_SIZE - 16
             bh = 3
@@ -318,7 +449,6 @@ class Renderer:
             if fw > 0:
                 bcol = (int(255 * (1 - ratio)), int(255 * ratio), 0)
                 pygame.draw.rect(surface, bcol, (bx, by, fw, bh))
-        # Queue count label
         qlbl = self.font_sm.render(
             f"대기:{len(shop.waiting_queue)}", True, (255, 200, 80))
         surface.blit(qlbl, (ex, ey - 14))
@@ -520,7 +650,7 @@ class Renderer:
             top=panel_y + panel_h - 18))
 
     # ═══════════════════════════════════════════════
-    #  Bar counters
+    #  Layer 3: Bar counters
     # ═══════════════════════════════════════════════
     def _draw_bar(self, surface, shop, ox, oy):
         bar = shop.bar
@@ -531,11 +661,31 @@ class Renderer:
                 rect = pygame.Rect(pos[0] * TILE_SIZE + ox,
                                    pos[1] * TILE_SIZE + oy,
                                    TILE_SIZE, TILE_SIZE)
-                pygame.draw.rect(surface, (60, 40, 80), rect)
-                pygame.draw.rect(surface, COLORS["grid_line"], rect, 1)
+                if self.am.tile_bar:
+                    ghost = self.am.tile_bar.copy()
+                    ghost.set_alpha(120)
+                    surface.blit(ghost, rect.topleft)
+                else:
+                    pygame.draw.rect(surface, (60, 40, 80), rect)
             return
 
-        # Assign items to tiles: preparing first, then ready
+        # Draw wide bar image spanning all positions
+        if positions and self.am.tile_bar_wide:
+            left_pos = positions[0]
+            bx = left_pos[0] * TILE_SIZE + ox
+            by = left_pos[1] * TILE_SIZE + oy
+            surface.blit(self.am.tile_bar_wide, (bx, by))
+        else:
+            for pos in positions:
+                rect = pygame.Rect(pos[0] * TILE_SIZE + ox,
+                                   pos[1] * TILE_SIZE + oy,
+                                   TILE_SIZE, TILE_SIZE)
+                if self.am.tile_bar:
+                    surface.blit(self.am.tile_bar, rect.topleft)
+                else:
+                    col = COLORS.get("bar", (100, 60, 140))
+                    pygame.draw.rect(surface, col, rect)
+
         tile_slots: list[tuple[str, dict] | None] = [None] * len(positions)
         idx = 0
         for order in bar.preparing:
@@ -551,35 +701,27 @@ class Renderer:
             rect = pygame.Rect(pos[0] * TILE_SIZE + ox,
                                pos[1] * TILE_SIZE + oy,
                                TILE_SIZE, TILE_SIZE)
+
             slot = tile_slots[i] if i < len(tile_slots) else None
-
-            if slot and slot[0] == "ready":
-                col = COLORS.get("bar_ready", (160, 100, 220))
-            elif slot and slot[0] == "preparing":
-                col = COLORS.get("bar", (100, 60, 140))
-            else:
-                col = COLORS.get("bar", (100, 60, 140))
-            pygame.draw.rect(surface, col, rect)
-            pygame.draw.rect(surface, COLORS["grid_line"], rect, 1)
-
             if slot is None:
                 continue
 
             state, data = slot
 
             if state == "preparing":
-                # Drink name
-                name = data["drink_item"]["name"]
-                nm = self.font_sm.render(name[:4], True, (255, 255, 255))
-                surface.blit(nm, nm.get_rect(
-                    centerx=rect.centerx, top=rect.y + 4))
-
-                # Table ID
+                drink_id = data["drink_item"].get("id", "")
+                drink_icon = self.am.get_drink_icon(drink_id)
+                if drink_icon:
+                    surface.blit(drink_icon, (rect.x + 16, rect.y + 2))
+                else:
+                    name = data["drink_item"]["name"]
+                    nm = self.font_sm.render(name[:4], True, (255, 255, 255))
+                    surface.blit(nm, nm.get_rect(
+                        centerx=rect.centerx, top=rect.y + 4))
                 tid = self.font_sm.render(
                     f"T{data['table_id']}", True, (180, 180, 180))
                 surface.blit(tid, (rect.right - 22, rect.y + 4))
 
-                # Progress bar
                 total = data["drink_item"]["prep_time"]
                 ratio = max(0.0, 1.0 - data["timer"] / total) if total else 1.0
                 bw = TILE_SIZE - 8
@@ -588,7 +730,6 @@ class Renderer:
                 pygame.draw.rect(surface, (60, 60, 60), (bx, by, bw, 8))
                 pygame.draw.rect(surface, (160, 100, 220),
                                  (bx, by, int(bw * ratio), 8))
-
                 pct = self.font_sm.render(
                     f"{int(ratio * 100)}%", True, (200, 200, 200))
                 surface.blit(pct, pct.get_rect(
@@ -597,37 +738,93 @@ class Renderer:
             elif state == "ready":
                 done = self.font_sm.render("완성", True, (255, 200, 80))
                 surface.blit(done, (rect.x + 2, rect.y + 2))
-
-                name = data["drink_item"]["name"]
-                nm = self.font_sm.render(name[:4], True, (220, 160, 255))
-                surface.blit(nm, nm.get_rect(center=rect.center))
-
+                drink_id = data["drink_item"].get("id", "")
+                drink_icon = self.am.get_drink_icon(drink_id)
+                if drink_icon:
+                    surface.blit(drink_icon, (rect.x + 16, rect.centery - 16))
+                else:
+                    name = data["drink_item"]["name"]
+                    nm = self.font_sm.render(name[:4], True, (220, 160, 255))
+                    surface.blit(nm, nm.get_rect(center=rect.center))
                 tid = self.font_sm.render(
                     f"T{data['table_id']}", True, (180, 180, 180))
                 surface.blit(tid, tid.get_rect(
                     centerx=rect.centerx, bottom=rect.bottom - 4))
 
     # ═══════════════════════════════════════════════
-    #  Employees
+    #  Employees (sprite-based with direction detection)
     # ═══════════════════════════════════════════════
+    @staticmethod
+    def _employee_sprite_key(emp) -> str:
+        """Determine sprite key based on employee gender assignment.
+        Ratio: 2 male, 3 female (cycle per emp_id).
+        """
+        return "employee_man" if emp.emp_id % 5 < 2 else "employee_woman"
+
+    @staticmethod
+    def _employee_anim_state(emp) -> str:
+        from core.employee import Employee
+        if emp.state == Employee.IDLE:
+            return "idle"
+        if emp.state == Employee.ACTING:
+            return "down"  # front-facing for actions
+
+        # MOVING: determine direction from movement vector
+        if emp.target_x is not None and emp.target_y is not None:
+            dx = emp.target_x - (emp.x + TILE_SIZE / 2)
+            dy = emp.target_y - (emp.y + TILE_SIZE / 2)
+            if abs(dx) > abs(dy):
+                return "right" if dx > 0 else "left"
+            else:
+                return "down" if dy > 0 else "up"
+        return "idle"
+
     def _draw_employees(self, surface, shop, ox, oy):
         for emp in shop.employees:
-            ecx = emp.x + TILE_SIZE // 2 + ox
-            ecy = emp.y + TILE_SIZE // 2 + oy
-            radius = 14
-            pygame.draw.circle(surface, emp.color, (int(ecx), int(ecy)), radius)
-            pygame.draw.circle(surface, (0, 0, 0), (int(ecx), int(ecy)), radius, 1)
-            lbl = self.font_sm.render(f"직{emp.emp_id}", True, (255, 255, 255))
-            surface.blit(lbl, lbl.get_rect(center=(int(ecx), int(ecy))))
+            ecx = int(emp.x) + ox
+            ecy = int(emp.y) + oy
+            rect = pygame.Rect(ecx, ecy, TILE_SIZE, TILE_SIZE)
 
-            # Carry label (food name above employee)
+            sprite_key = self._employee_sprite_key(emp)
+            anim_state = self._employee_anim_state(emp)
+
+            if self.am.has_sprite(sprite_key, anim_state):
+                frame = self.am.get_frame(
+                    sprite_key, anim_state, emp.animation_frame)
+                surface.blit(frame, rect.topleft)
+            elif self.am.has_sprite(sprite_key, "idle"):
+                frame = self.am.get_frame(sprite_key, "idle", 0)
+                surface.blit(frame, rect.topleft)
+            else:
+                radius = 14
+                cx_px = ecx + TILE_SIZE // 2
+                cy_px = ecy + TILE_SIZE // 2
+                pygame.draw.circle(surface, emp.color,
+                                   (cx_px, cy_px), radius)
+                pygame.draw.circle(surface, (0, 0, 0),
+                                   (cx_px, cy_px), radius, 1)
+
+            # Carry icon above head
             if emp.carrying:
-                name = self._carry_name(emp.carrying)
-                if name:
-                    nm = self.font_sm.render(
-                        name, True, (255, 255, 200))
-                    surface.blit(nm, nm.get_rect(
-                        centerx=int(ecx), bottom=int(ecy) - radius - 2))
+                carry_type = emp.carrying.get("type", "")
+                icon = None
+                if carry_type == "food":
+                    food_id = emp.carrying.get("menu_item", {}).get("id", "")
+                    icon = self.am.get_food_icon(food_id)
+                elif carry_type == "drink":
+                    drink_id = emp.carrying.get("drink_item", {}).get("id", "")
+                    icon = self.am.get_drink_icon(drink_id)
+                if icon:
+                    surface.blit(icon, icon.get_rect(
+                        centerx=ecx + TILE_SIZE // 2,
+                        bottom=ecy - 2))
+                else:
+                    name = self._carry_name(emp.carrying)
+                    if name:
+                        nm = self.font_sm.render(name, True, (255, 255, 200))
+                        surface.blit(nm, nm.get_rect(
+                            centerx=ecx + TILE_SIZE // 2,
+                            bottom=ecy - 2))
 
     # ── helper: extract Korean food name from a carry dict ──
     @staticmethod
@@ -641,7 +838,7 @@ class Renderer:
             return item.get("drink_item", {}).get("name", "음료")[:3]
         return ""
 
-    # ── carried food name labels on player ──
+    # ── carried food/drink icon + label on player ──
     def _draw_carry_labels(self, surface, shop, ox, oy):
         player = shop.player
         if not player.carrying:
@@ -649,13 +846,27 @@ class Renderer:
         px = player.x + ox
         py = player.y + oy
         for i, item in enumerate(player.carrying[:3]):
-            name = self._carry_name(item)
-            if not name:
-                continue
-            lbl = self.font_sm.render(name, True, (255, 255, 200))
-            surface.blit(lbl, lbl.get_rect(
-                centerx=int(px + TILE_SIZE // 2),
-                bottom=int(py) - 10 - i * 14))
+            iy = int(py) - 6 - i * 34   # stack upward above head
+            cx = int(px + TILE_SIZE // 2)
+
+            # Draw food/drink icon above head
+            carry_type = item.get("type", "")
+            icon = None
+            if carry_type == "food":
+                food_id = item.get("menu_item", {}).get("id", "")
+                icon = self.am.get_food_icon(food_id)
+            elif carry_type == "drink":
+                drink_id = item.get("drink_item", {}).get("id", "")
+                icon = self.am.get_drink_icon(drink_id)
+            if icon:
+                surface.blit(icon, icon.get_rect(
+                    centerx=cx, bottom=iy))
+            else:
+                name = self._carry_name(item)
+                if name:
+                    lbl = self.font_sm.render(name, True, (255, 255, 200))
+                    surface.blit(lbl, lbl.get_rect(
+                        centerx=cx, bottom=iy))
 
     # ═══════════════════════════════════════════════
     #  Floating texts (+$X payment labels)

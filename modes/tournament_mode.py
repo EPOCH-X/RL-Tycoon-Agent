@@ -47,15 +47,15 @@ class TournamentMode(BaseMode):
         # ── 참가자 로드 ──
         if participants is None:
             entries = _find_all_models()
-            # Deduplicate: keep best_model per algorithm
-            seen_algos: dict[str, dict] = {}
+            # Deduplicate: keep best_model per folder name
+            seen_names: dict[str, dict] = {}
             for entry in entries:
-                algo = entry.get("algo", "Unknown")
+                name = entry.get("name", entry.get("algo", "Unknown"))
                 path = entry.get("path", "")
                 # Prefer best_model over final_model
-                if algo not in seen_algos or "best" in path:
-                    seen_algos[algo] = entry
-            participants = list(seen_algos.values())[:self.MAX_PARTICIPANTS]
+                if name not in seen_names or "best" in path:
+                    seen_names[name] = entry
+            participants = list(seen_names.values())[:self.MAX_PARTICIPANTS]
 
         if not participants:
             raise RuntimeError(
@@ -71,14 +71,16 @@ class TournamentMode(BaseMode):
         self._entries: list[dict] = []
         for entry in participants:
             algo = entry.get("algo", "Unknown")
+            name = entry.get("name", algo)
             path = entry.get("path", "")
             try:
                 agent = load_agent(path, algo_name=algo)
             except Exception as e:
-                print(f"  [Tournament] {algo} 로드 실패 ({path}): {e}")
+                print(f"  [Tournament] {name} 로드 실패 ({path}): {e}")
                 continue
             self._entries.append({
                 "algo": algo,
+                "name": name,
                 "path": path,
                 "agent": agent,
                 "shop": Shop(target_money=target_money, day_limit=day_limit),
@@ -90,7 +92,12 @@ class TournamentMode(BaseMode):
         n = len(self._entries)
         print(f"\n  [Tournament] 참가자 {n}명:")
         for i, e in enumerate(self._entries):
-            print(f"    {i+1}. {e['algo']} → {e['path']}")
+            print(f"    {i+1}. {e['name']} ({e['algo']}) → {e['path']}")
+
+        # ── 에이전트 기본 정책: 확률적(stochastic) ──
+        for entry in self._entries:
+            if hasattr(entry["agent"], "deterministic"):
+                entry["agent"].deterministic = False
 
         # ── Layout: 1→1col, 2→2col, 3-4→2×2 grid ──
         sample_shop = self._entries[0]["shop"]
@@ -107,17 +114,26 @@ class TournamentMode(BaseMode):
 
         self._cols = cols
         self._rows = rows
-        screen_w = cols * self._panel_w + (cols - 1) * div
-        screen_h = rows * self._panel_h + (rows - 1) * div
+        self._internal_w = cols * self._panel_w + (cols - 1) * div
+        self._internal_h = rows * self._panel_h + (rows - 1) * div
 
         # Add scoreboard area at bottom
         self._scoreboard_h = 160
-        screen_h += self._scoreboard_h
+        self._internal_h += self._scoreboard_h
+
+        # 축소 렌더링 (0.45×)
+        self._scale = 0.45
+        screen_w = int(self._internal_w * self._scale)
+        screen_h = int(self._internal_h * self._scale)
+        self._render_surface = pygame.Surface(
+            (self._internal_w, self._internal_h))
 
         super().__init__(screen_w, screen_h, title="RL 타이쿤 – 토너먼트")
 
         self.am = AssetManager()
-        self._renderers = [Renderer(self.am) for _ in range(n)]
+        self.am.ensure_loaded()
+        self._renderers = [Renderer(self.am, background_key="sample3")
+                           for _ in range(n)]
 
         self.speed_multiplier = max(0.5, speed_multiplier)
         self._all_done = False
@@ -135,6 +151,11 @@ class TournamentMode(BaseMode):
                     return
                 if event.key == pygame.K_r and self._all_done:
                     self._restart()
+                if event.key == pygame.K_d:
+                    for entry in self._entries:
+                        ag = entry["agent"]
+                        if hasattr(ag, "deterministic"):
+                            ag.deterministic = not ag.deterministic
                 if event.key == pygame.K_UP:
                     self.speed_multiplier = min(10.0, self.speed_multiplier + 0.5)
                 if event.key == pygame.K_DOWN:
@@ -168,7 +189,8 @@ class TournamentMode(BaseMode):
 
     # ── render ───────────────────────────────────
     def render(self):
-        self.screen.fill((20, 20, 35))
+        surf = self._render_surface
+        surf.fill((20, 20, 35))
         n = len(self._entries)
         div = VERSUS_DIVIDER_WIDTH
 
@@ -178,14 +200,23 @@ class TournamentMode(BaseMode):
             ox = col * (self._panel_w + div)
             oy = row * (self._panel_h + div)
 
-            self._renderers[idx].draw(self.screen, entry["shop"],
+            self._renderers[idx].draw(surf, entry["shop"],
                                       offset_x=ox, offset_y=oy)
 
-            # Label
-            font = self._get_font(16)
+            # Algorithm label (large, with background)
+            font_lbl = self._get_font(28)
             color = self._participant_color(idx)
-            label = font.render(f"{entry['algo']}", True, color)
-            self.screen.blit(label, (ox + 4, oy + 2))
+            shop = entry["shop"]
+            stars = shop.shop_rating * 5.0
+            lbl_text = (f"[{entry['name']}]  ${shop.money}"
+                        f"(${shop.net_profit})  {stars:.1f}")
+            label = font_lbl.render(lbl_text, True, color)
+            lbl_bg = pygame.Surface(
+                (label.get_width() + 8, label.get_height() + 4),
+                pygame.SRCALPHA)
+            lbl_bg.fill((0, 0, 0, 160))
+            surf.blit(lbl_bg, (ox + 2, oy + 2))
+            surf.blit(label, (ox + 6, oy + 4))
 
         # ── Dividers ──
         total_w = self._cols * self._panel_w + (self._cols - 1) * div
@@ -193,22 +224,25 @@ class TournamentMode(BaseMode):
 
         for c in range(1, self._cols):
             x = c * self._panel_w + (c - 1) * div
-            pygame.draw.rect(self.screen, VERSUS_DIVIDER_COLOR,
+            pygame.draw.rect(surf, VERSUS_DIVIDER_COLOR,
                              (x, 0, div, total_h))
         for r in range(1, self._rows):
             y = r * self._panel_h + (r - 1) * div
-            pygame.draw.rect(self.screen, VERSUS_DIVIDER_COLOR,
+            pygame.draw.rect(surf, VERSUS_DIVIDER_COLOR,
                              (0, y, total_w, div))
 
         # ── Scoreboard ──
-        self._draw_scoreboard(total_h)
+        self._draw_scoreboard(total_h, surf)
 
-        # ── Speed info ──
+        # ── Policy / Speed info ──
         font_sm = self._get_font(14)
+        det = getattr(self._entries[0]["agent"], "deterministic", True)
+        policy_str = "결정적" if det else "확률적"
         speed_txt = font_sm.render(
-            f"속도: ×{self.speed_multiplier:.1f}  ↑↓: 속도조절  R: 재시작  ESC: 종료",
+            f"속도: ×{self.speed_multiplier:.1f}  정책: {policy_str}  "
+            f"D: 정책전환  ↑↓: 속도조절  R: 재시작  ESC: 종료",
             True, (140, 140, 160))
-        self.screen.blit(speed_txt, (4, self.screen.get_height() - 18))
+        surf.blit(speed_txt, (4, self._internal_h - 18))
 
         # ── Game over overlay ──
         if self._all_done:
@@ -217,39 +251,47 @@ class TournamentMode(BaseMode):
                 row = idx // self._cols
                 ox = col * (self._panel_w + div)
                 oy = row * (self._panel_h + div)
-                rank = self._get_rank(entry["algo"])
+                rank = self._get_rank(entry["name"])
                 extra = f"#{rank}" if rank else ""
                 self._renderers[idx].draw_game_over(
-                    self.screen, entry["shop"],
+                    surf, entry["shop"],
                     offset_x=ox, offset_y=oy, extra_text=extra)
+            # Final results overlay
+            self._draw_final_results(surf)
 
+        # 축소하여 화면에 표시
+        scaled = pygame.transform.smoothscale(
+            surf, (self.screen.get_width(), self.screen.get_height()))
+        self.screen.blit(scaled, (0, 0))
         pygame.display.flip()
 
-    def _draw_scoreboard(self, y_start: int):
+    def _draw_scoreboard(self, y_start: int,
+                         surface: pygame.Surface | None = None):
         """화면 하단에 실시간 스코어보드를 그립니다."""
+        dst = surface or self.screen
         font = self._get_font(18)
         font_sm = self._get_font(14)
 
         # Background
-        board_rect = pygame.Rect(0, y_start, self.screen.get_width(),
+        board_rect = pygame.Rect(0, y_start, dst.get_width(),
                                  self._scoreboard_h)
-        pygame.draw.rect(self.screen, (25, 25, 45), board_rect)
-        pygame.draw.line(self.screen, (80, 80, 120),
-                         (0, y_start), (self.screen.get_width(), y_start), 2)
+        pygame.draw.rect(dst, (25, 25, 45), board_rect)
+        pygame.draw.line(dst, (80, 80, 120),
+                         (0, y_start), (dst.get_width(), y_start), 2)
 
         # Title
-        title = font.render("📊 토너먼트 스코어보드", True, (255, 215, 0))
-        self.screen.blit(title, (10, y_start + 8))
+        title = font.render("토너먼트 스코어보드", True, (255, 215, 0))
+        dst.blit(title, (10, y_start + 8))
 
         # Headers
         hx = 10
         hy = y_start + 35
-        headers = ["순위", "알고리즘", "스코어", "수익($)", "평점",
+        headers = ["순위", "참가자", "스코어", "수익($)", "평점",
                     "서빙", "이탈", "상태"]
-        col_widths = [50, 120, 100, 100, 80, 60, 60, 80]
+        col_widths = [50, 180, 100, 100, 80, 60, 60, 80]
         for header, cw in zip(headers, col_widths):
             h_surf = font_sm.render(header, True, (160, 180, 200))
-            self.screen.blit(h_surf, (hx, hy))
+            dst.blit(h_surf, (hx, hy))
             hx += cw
 
         # Sort entries by score descending
@@ -259,6 +301,7 @@ class TournamentMode(BaseMode):
             scored.append({
                 "idx": idx,
                 "algo": entry["algo"],
+                "name": entry["name"],
                 "score": shop.final_score,
                 "money": shop.money,
                 "net_profit": shop.net_profit,
@@ -282,7 +325,7 @@ class TournamentMode(BaseMode):
 
             values = [
                 f"#{rank}",
-                s["algo"],
+                s["name"],
                 f"{s['score']:,.0f}",
                 f"${s['net_profit']:,}",
                 f"{s['rating']:.1f}★",
@@ -292,7 +335,7 @@ class TournamentMode(BaseMode):
             ]
             for val, cw in zip(values, col_widths):
                 v_surf = font_sm.render(val, True, color)
-                self.screen.blit(v_surf, (rx, ry))
+                dst.blit(v_surf, (rx, ry))
                 rx += cw
 
     def _compute_rankings(self):
@@ -300,24 +343,79 @@ class TournamentMode(BaseMode):
         self._rankings = []
         for entry in self._entries:
             self._rankings.append({
-                "algo": entry["algo"],
+                "name": entry["name"],
                 "score": entry["shop"].final_score,
                 "won": entry["shop"].won,
             })
         self._rankings.sort(key=lambda x: x["score"], reverse=True)
         print("\n  ╔══════════════════════════════════════╗")
-        print("  ║      🏆 토너먼트 최종 결과 🏆        ║")
+        print("  ║      토너먼트 최종 결과              ║")
         print("  ╠══════════════════════════════════════╣")
         for i, r in enumerate(self._rankings, 1):
-            medal = {1: "🥇", 2: "🥈", 3: "🥉"}.get(i, "  ")
-            won_str = " ★승리" if r["won"] else ""
-            print(f"  ║ {medal} #{i}  {r['algo']:<12s}"
+            medal = {1: "1st", 2: "2nd", 3: "3rd"}.get(i, f"{i}th")
+            won_str = " WIN" if r["won"] else ""
+            print(f"  ║ {medal} #{i}  {r['name']:<20s}"
                   f"  스코어: {r['score']:>8,.0f}{won_str}")
         print("  ╚══════════════════════════════════════╝")
 
-    def _get_rank(self, algo: str) -> int | None:
+    def _draw_final_results(self, surface: pygame.Surface):
+        """게임 종료 후 최종 순위를 화면 가운데 오버레이로 표시합니다."""
+        if not self._rankings:
+            return
+
+        sw, sh = surface.get_size()
+        panel_w = 500
+        row_h = 36
+        panel_h = 60 + len(self._rankings) * row_h + 40
+        px = (sw - panel_w) // 2
+        py = (sh - panel_h) // 2
+
+        # Dark overlay background
+        overlay = pygame.Surface((sw, sh), pygame.SRCALPHA)
+        overlay.fill((0, 0, 0, 160))
+        surface.blit(overlay, (0, 0))
+
+        # Panel background
+        pygame.draw.rect(surface, (30, 30, 55),
+                         (px, py, panel_w, panel_h), border_radius=12)
+        pygame.draw.rect(surface, (100, 130, 200),
+                         (px, py, panel_w, panel_h), width=2, border_radius=12)
+
+        font_title = self._get_font(22)
+        font_row = self._get_font(18)
+
+        # Title
+        title = font_title.render("토너먼트 최종 결과", True, (255, 215, 0))
+        surface.blit(title, title.get_rect(
+            centerx=px + panel_w // 2, top=py + 14))
+
+        # Ranking rows
+        medals = {1: "1st", 2: "2nd", 3: "3rd"}
+        medal_colors = {
+            1: (255, 215, 0),
+            2: (200, 200, 200),
+            3: (205, 127, 50),
+        }
         for i, r in enumerate(self._rankings, 1):
-            if r["algo"] == algo:
+            ry = py + 55 + (i - 1) * row_h
+            color = medal_colors.get(i, (180, 180, 180))
+            medal = medals.get(i, f"{i}th")
+            won_str = "  (WIN)" if r["won"] else ""
+            txt = font_row.render(
+                f"  {medal}   {r['name']:<20s}   "
+                f"Score: {r['score']:>10,.0f}{won_str}",
+                True, color)
+            surface.blit(txt, (px + 20, ry))
+
+        # Hint
+        hint = self._get_font(14).render(
+            "R: 재시작  |  ESC: 종료", True, (140, 140, 160))
+        surface.blit(hint, hint.get_rect(
+            centerx=px + panel_w // 2, bottom=py + panel_h - 10))
+
+    def _get_rank(self, name: str) -> int | None:
+        for i, r in enumerate(self._rankings, 1):
+            if r["name"] == name:
                 return i
         return None
 

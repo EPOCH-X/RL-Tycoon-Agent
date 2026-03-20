@@ -41,11 +41,11 @@ def _show_menu():
     ACCENT = (255, 215, 0)
 
     buttons = [
-        {"label": "🎮  솔로 모드 (30일)", "mode": "human", "days": 30, "rect": None},
-        {"label": "🎮  솔로 모드 (60일)", "mode": "human", "days": 60, "rect": None},
-        {"label": "⚔️  대결 모드 (30일)", "mode": "versus", "days": 30, "rect": None},
-        {"label": "⚔️  대결 모드 (60일)", "mode": "versus", "days": 60, "rect": None},
-        {"label": "🏆  토너먼트 모드", "mode": "tournament", "days": 30, "rect": None},
+        {"label": "[ 솔로 모드 (30일) ]", "mode": "human", "days": 30, "rect": None},
+        {"label": "[ 솔로 모드 (60일) ]", "mode": "human", "days": 60, "rect": None},
+        {"label": "[ 대결 모드 (30일) ]", "mode": "versus", "days": 30, "rect": None},
+        {"label": "[ 대결 모드 (60일) ]", "mode": "versus", "days": 60, "rect": None},
+        {"label": "[ 토너먼트 모드 ]", "mode": "tournament", "days": 30, "rect": None},
     ]
 
     BTN_W, BTN_H = 360, 52

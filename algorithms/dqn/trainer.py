@@ -93,7 +93,7 @@ class DQNTrainer(BaseTrainer):
                 patience=50, min_delta=1.0, verbose=1),
         )
 
-    def train(self) -> dict[str, Any]:
+    def train(self, resume_path: str | None = None) -> dict[str, Any]:
         assert self.model is not None, "call build() first"
         print_metric_reference()
         self.model.learn(total_timesteps=self._timesteps, callback=self._eval_cb)

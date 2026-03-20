@@ -88,10 +88,28 @@ def load_algo_config(algo_name: str, config_path: str | None = None,
     return load_json_config("train_config.json")
 
 
+# ── 환경 팩토리 오버라이드 (CrossPlay용) ──────────────────
+_env_override_factory = None
+
+
+def set_env_override(factory):
+    """CrossPlay 등에서 make_env 환경 팩토리를 오버라이드합니다."""
+    global _env_override_factory
+    _env_override_factory = factory
+
+
+def clear_env_override():
+    """환경 팩토리 오버라이드를 해제합니다."""
+    global _env_override_factory
+    _env_override_factory = None
+
+
 def make_env(rank: int = 0, seed: int = 0,
              game_overrides: dict | None = None,
              reward_config: dict | None = None):
     """환경 생성 팩토리 함수."""
+    if _env_override_factory is not None:
+        return _env_override_factory(rank, seed, game_overrides, reward_config)
     def _init():
         kwargs = {}
         if game_overrides:
