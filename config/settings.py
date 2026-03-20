@@ -62,8 +62,43 @@ ACTION_LEFT = 2
 ACTION_RIGHT = 3
 ACTION_INTERACT = 4
 ACTION_NONE = 5
-ACTION_BUY_UPGRADE = 6
-NUM_ACTIONS = 7
+# Individual upgrade purchases (one action per upgrade type)
+ACTION_BUY_SPEED_SHOES = 6
+ACTION_BUY_KITCHEN_EXPAND = 7
+ACTION_BUY_HIRE_CHEF = 8
+ACTION_BUY_COOK_SPEED = 9
+ACTION_BUY_TABLE = 10
+ACTION_BUY_MARKETING = 11
+ACTION_BUY_WAITER = 12
+ACTION_BUY_BARTENDER = 13
+ACTION_BUY_EMPLOYEE_SPEED = 14
+# Trait selection (3 choices offered periodically)
+ACTION_SELECT_TRAIT_0 = 15
+ACTION_SELECT_TRAIT_1 = 16
+ACTION_SELECT_TRAIT_2 = 17
+NUM_ACTIONS = 18
+
+# Legacy alias (for backward compatibility in configs)
+ACTION_BUY_UPGRADE = ACTION_BUY_SPEED_SHOES  # first upgrade action
+
+# Action → upgrade ID mapping
+ACTION_TO_UPGRADE: dict[int, str] = {
+    ACTION_BUY_SPEED_SHOES:     "speed_shoes",
+    ACTION_BUY_KITCHEN_EXPAND:  "kitchen_expand",
+    ACTION_BUY_HIRE_CHEF:       "hire_chef",
+    ACTION_BUY_COOK_SPEED:      "cook_speed",
+    ACTION_BUY_TABLE:           "buy_table",
+    ACTION_BUY_MARKETING:       "marketing",
+    ACTION_BUY_WAITER:          "hire_waiter",
+    ACTION_BUY_BARTENDER:       "hire_bartender",
+    ACTION_BUY_EMPLOYEE_SPEED:  "employee_speed",
+}
+
+# Upgrade action range (for quick checks)
+UPGRADE_ACTION_MIN = ACTION_BUY_SPEED_SHOES
+UPGRADE_ACTION_MAX = ACTION_BUY_EMPLOYEE_SPEED
+TRAIT_ACTION_MIN = ACTION_SELECT_TRAIT_0
+TRAIT_ACTION_MAX = ACTION_SELECT_TRAIT_2
 
 # ──────────────────────────────────────────────
 # Colors (Phase 1 placeholder palette)

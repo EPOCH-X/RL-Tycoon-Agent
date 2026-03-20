@@ -160,7 +160,6 @@ class SelfPlayEnv(gymnasium.Env):
 
         # 내 매장 스텝
         events = self.shop.step(int(action))
-        self.shop.auto_select_trait()
 
         # 상대 매장 스텝
         opp_base_obs = build_observation(self.opponent_shop)
@@ -168,7 +167,6 @@ class SelfPlayEnv(gymnasium.Env):
         if int(opp_action) == ACTION_INTERACT:
             self._auto_face_nearest(self.opponent_shop)
         self.opponent_shop.step(int(opp_action))
-        self.opponent_shop.auto_select_trait()
 
         net_profit_delta = float(self.shop.net_profit) - self._prev_net_profit
         rating_delta = float(self.shop.shop_rating) - self._prev_rating
