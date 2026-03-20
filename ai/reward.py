@@ -21,7 +21,7 @@ DEFAULT_WEIGHTS: dict[str, float] = {
     "take_order":         8.0,
     "submit_kitchen":     5.0,
     "pickup_food":        5.0,
-    "serve_food":        15.0,
+    "serve_food":        17.0,
     "pickup_drink":       3.0,
     "serve_drink":        8.0,
     "customer_payment":   1.0,
@@ -42,9 +42,9 @@ DEFAULT_WEIGHTS: dict[str, float] = {
     # ── 특성 선택 ──
     "select_trait":       3.0,    # 특성 제안 수락 시 보상
     # ── 대기열 (잠재고객) ──
-    "customer_waiting":      -0.3,    # 손님이 밖에서 대기 시작 (자리 부족 경고)
+    "customer_waiting":      -0.9,    # 손님이 밖에서 대기 시작 (자리 부족 경고)
     "waiting_customer_seated": 3.0,   # 대기 손님이 착석 (테이블 확보 보상)
-    "waiting_customer_left": -8.0,    # 대기 손님 이탈 (잠재 수익 손실)
+    "waiting_customer_left": -10.0,    # 대기 손님 이탈 (잠재 수익 손실)
     # ── 게임 마일스톤 ──
     "win":              200.0,
     "game_end":           0.01,
