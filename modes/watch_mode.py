@@ -14,7 +14,7 @@ import numpy as np
 
 from config.settings import (
     TILE_SIZE, UI_HEIGHT, COLORS,
-    ACTION_NONE,
+    ACTION_NONE, NUM_ACTIONS,
 )
 from modes.base_mode import BaseMode
 from core.shop import Shop
@@ -24,7 +24,12 @@ from rendering.renderer import Renderer
 from ai.agent import load_agent, _detect_algo_from_path
 from ai.gym_env import build_observation
 
-ACTION_NAMES = ["↑위", "↓아래", "←좌", "→우", "★상호작용", "·대기", "₩업그레이드"]
+ACTION_NAMES = [
+    "↑위", "↓아래", "←좌", "→우", "★상호작용", "·대기",
+    "₩신발", "₩주방확장", "₩요리사", "₩조리속도", "₩테이블",
+    "₩마케팅", "₩웨이터", "₩바텐더", "₩직원속도",
+    "★특성1", "★특성2", "★특성3",
+]
 
 
 def _auto_find_best_model() -> tuple[str | None, str | None]:
@@ -96,7 +101,7 @@ class WatchMode(BaseMode):
         self._last_action: int = ACTION_NONE
         self._last_probs: np.ndarray | None = None
         self._step_count: int = 0
-        self._action_counts = [0] * 7
+        self._action_counts = [0] * NUM_ACTIONS
 
     # ── events ───────────────────────────────────
     def handle_events(self):
@@ -112,7 +117,7 @@ class WatchMode(BaseMode):
                     self.shop.reset()
                     self._result_recorded = False
                     self._step_count = 0
-                    self._action_counts = [0] * 7
+                    self._action_counts = [0] * NUM_ACTIONS
                 # Toggle deterministic
                 if event.key == pygame.K_d:
                     if hasattr(self.agent, 'deterministic'):
@@ -140,7 +145,7 @@ class WatchMode(BaseMode):
             action = self.agent.predict(obs)
             self._last_action = action
             self._step_count += 1
-            if 0 <= action < 7:
+            if 0 <= action < NUM_ACTIONS:
                 self._action_counts[action] += 1
 
             # Get action probabilities for debug display
@@ -177,7 +182,7 @@ class WatchMode(BaseMode):
         panel_x = self.screen.get_width() - 180
         panel_y = 20
         # Current action
-        a_name = ACTION_NAMES[self._last_action] if 0 <= self._last_action < 7 else "?"
+        a_name = ACTION_NAMES[self._last_action] if 0 <= self._last_action < NUM_ACTIONS else "?"
         act_lbl = font.render(f"행동: {a_name}", True, (255, 255, 200))
         self.screen.blit(act_lbl, (panel_x, panel_y))
         panel_y += 18
