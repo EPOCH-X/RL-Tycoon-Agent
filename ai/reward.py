@@ -39,6 +39,8 @@ DEFAULT_WEIGHTS: dict[str, float] = {
     "food_unlock":        0.3,    # 음식 해금 (value=메뉴가격, 0.3×가격=보상)
     "no_upgrade":         0.0,
     "upgrade_available":  -0.3,   # 업그레이드 가능한데 안 살 때 매 스텝 페널티
+    # ── 특성 선택 ──
+    "select_trait":       3.0,    # 특성 제안 수락 시 보상
     # ── 대기열 (잠재고객) ──
     "customer_waiting":      -0.3,    # 손님이 밖에서 대기 시작 (자리 부족 경고)
     "waiting_customer_seated": 3.0,   # 대기 손님이 착석 (테이블 확보 보상)

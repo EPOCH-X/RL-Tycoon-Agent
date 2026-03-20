@@ -241,9 +241,6 @@ class VersusMode(BaseMode):
         ai_action = self.agent.predict(obs)
         self.ai_shop.step(ai_action)
 
-        # AI auto-selects traits
-        self.ai_shop.auto_select_trait()
-
         # Sync time (both shops share the same clock)
         self.ai_shop.time_elapsed = self.human_shop.time_elapsed
 

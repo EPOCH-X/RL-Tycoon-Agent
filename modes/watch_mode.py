@@ -151,7 +151,6 @@ class WatchMode(BaseMode):
                     self._last_probs = None
 
             self.shop.step(action)
-            self.shop.auto_select_trait()
 
     # ── draw ─────────────────────────────────────
     def render(self):

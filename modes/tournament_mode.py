@@ -178,7 +178,6 @@ class TournamentMode(BaseMode):
                 obs = build_observation(shop)
                 action = entry["agent"].predict(obs)
                 shop.step(action)
-                shop.auto_select_trait()
 
             if not any_running:
                 self._all_done = True
