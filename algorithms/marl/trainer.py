@@ -169,7 +169,7 @@ class MARLTrainer(BaseTrainer):
             device=device,
         )
 
-    def train(self) -> dict[str, Any]:
+    def train(self, resume_path: str | None = None) -> dict[str, Any]:
         assert self.model is not None, "call build() first"
 
         early_cb = KoreanEvalStopCallback(patience=50, min_delta=1.0, verbose=1)

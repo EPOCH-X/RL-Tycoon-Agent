@@ -21,17 +21,34 @@ from core.shop import Shop
 from core.ranking import RankingManager
 from rendering.asset_manager import AssetManager
 from rendering.renderer import Renderer
-from ai.agent import load_agent
-from ai.gym_env import build_observation, _get_primary_target_signature
-from core.customer import CustomerState
+from ai.agent import load_agent, _detect_algo_from_path
+from ai.gym_env import build_observation
 
 ACTION_NAMES = ["↑위", "↓아래", "←좌", "→우", "★상호작용", "·대기", "₩업그레이드"]
 
-# 디버그: True면 전반 분석용 로그를 watch_debug.log에 기록
-WATCH_DEBUG_IDLE_AT_TABLE = True
-WATCH_DEBUG_LOG_FILE = "watch_debug.log"  # 프로젝트 루트
-# 주기적 요약(스텝 간격), 0이면 주기 로그 없음
-WATCH_DEBUG_SUMMARY_EVERY_N_STEPS = 50
+
+def _auto_find_best_model() -> tuple[str | None, str | None]:
+    """models/ 디렉토리에서 best_model을 자동 탐색합니다."""
+    models_dir = "models"
+    if not os.path.isdir(models_dir):
+        return None, None
+    candidates = []
+    for root, _dirs, files in os.walk(models_dir):
+        for f in files:
+            if f == "best_model.zip":
+                candidates.append(os.path.join(root, f))
+            elif f == "best_model.pt":
+                candidates.append(os.path.join(root, f[:-3]))
+    if not candidates:
+        return None, None
+    path = candidates[0]
+    algo = _detect_algo_from_path(path)
+    cfg_path = os.path.join(os.path.dirname(path), "train_config_used.json")
+    if os.path.isfile(cfg_path):
+        with open(cfg_path, encoding="utf-8") as fp:
+            cfg = json.load(fp)
+        algo = cfg.get("algorithm", algo) or algo
+    return path, algo
 
 
 class WatchMode(BaseMode):
@@ -39,6 +56,12 @@ class WatchMode(BaseMode):
     def __init__(self, *, model_path=None, algo_name=None,
                  target_money=None, day_limit=None,
                  speed_multiplier: float = 1.0):
+        # Auto-find model if not specified
+        if model_path is None:
+            model_path, algo_name = _auto_find_best_model()
+            if model_path:
+                print(f"  [관전 모드] 자동 탐지 모델: {model_path} ({algo_name})")
+
         # Auto-detect day_limit from saved model config if not specified
         if day_limit is None and model_path:
             cfg_path = os.path.join(os.path.dirname(model_path),
@@ -56,10 +79,13 @@ class WatchMode(BaseMode):
         super().__init__(w, h, title="RL 타이쿤 – 관전 모드")
 
         self.am = AssetManager()
-        self.renderer = Renderer(self.am)
+        self.am.ensure_loaded()
+        self.renderer = Renderer(self.am, background_key="sample3")
         self.ranking = RankingManager()
 
         self.agent = load_agent(model_path, algo_name=algo_name)
+        if hasattr(self.agent, 'deterministic'):
+            self.agent.deterministic = False  # 기본: 확률적 정책
         self.speed_multiplier = max(0.5, speed_multiplier)
 
         self._model_path = model_path
@@ -71,19 +97,6 @@ class WatchMode(BaseMode):
         self._last_probs: np.ndarray | None = None
         self._step_count: int = 0
         self._action_counts = [0] * 7
-
-        self._debug_log_path = None
-        if WATCH_DEBUG_IDLE_AT_TABLE and WATCH_DEBUG_LOG_FILE:
-            self._debug_log_path = os.path.join(
-                os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                WATCH_DEBUG_LOG_FILE,
-            )
-            try:
-                import datetime
-                with open(self._debug_log_path, "a", encoding="utf-8") as f:
-                    f.write(f"=== watch 디버그 세션 시작 {datetime.datetime.now().isoformat()} ===\n")
-            except Exception:
-                pass
 
     # ── events ───────────────────────────────────
     def handle_events(self):
@@ -124,45 +137,11 @@ class WatchMode(BaseMode):
             if self.shop.done:
                 break
             obs = build_observation(self.shop)
-            target_sig = _get_primary_target_signature(self.shop)
             action = self.agent.predict(obs)
             self._last_action = action
             self._step_count += 1
             if 0 <= action < 7:
                 self._action_counts[action] += 1
-
-            # 전반 분석용 디버그 로그 (파일에만 기록)
-            if WATCH_DEBUG_IDLE_AT_TABLE and self._debug_log_path:
-                waiting_tids = [
-                    t.table_id for t in self.shop.tables
-                    if t.customer is not None
-                    and t.customer.state == CustomerState.WAITING_TO_ORDER
-                ]
-                carry = "order" if self.shop.player.has_order else (
-                    "food" if self.shop.player.has_food else (
-                        "drink" if self.shop.player.has_drink else "idle"
-                    )
-                )
-                target_str = f"{target_sig[0]}{target_sig[1]}" if target_sig else "None"
-                act_name = ACTION_NAMES[action] if 0 <= action < 7 else f"act{action}"
-                px, py = self.shop.player.center_x, self.shop.player.center_y
-                line = (
-                    f"step={self._step_count} | target={target_str} | action={action}({act_name}) | "
-                    f"carry={carry} | waiting_tables={waiting_tids} | pos=({px:.0f},{py:.0f})\n"
-                )
-                do_log = False
-                if waiting_tids:
-                    do_log = True
-                if action == ACTION_NONE:
-                    do_log = True
-                if WATCH_DEBUG_SUMMARY_EVERY_N_STEPS and self._step_count % WATCH_DEBUG_SUMMARY_EVERY_N_STEPS == 0:
-                    do_log = True
-                if do_log:
-                    try:
-                        with open(self._debug_log_path, "a", encoding="utf-8") as f:
-                            f.write(line)
-                    except Exception:
-                        pass
 
             # Get action probabilities for debug display
             if hasattr(self.agent, 'get_action_probs'):

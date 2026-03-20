@@ -158,7 +158,7 @@ class DreamerTrainer(BaseTrainer):
         self._reward_cfg = reward_cfg
         self._seed = seed
 
-    def train(self) -> dict[str, Any]:
+    def train(self, resume_path: str | None = None) -> dict[str, Any]:
         assert self.rssm is not None, "call build() first"
         hp = self._hp
         gamma = hp.get("gamma", 0.997)
@@ -424,7 +424,7 @@ class DreamerTrainer(BaseTrainer):
             "kl": kl.item(),
             "actor_loss": actor_loss.item(),
             "critic_loss": critic_loss.item(),
-            "entropy": (total_entropy / imagine_horizon).item(),
+            "entropy": im_entropies.mean().item(),
         }
 
     def _evaluate(self, env, n_episodes: int = 5) -> float:
