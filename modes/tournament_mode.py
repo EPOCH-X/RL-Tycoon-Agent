@@ -130,7 +130,7 @@ class TournamentMode(BaseMode):
 
         self.am = AssetManager()
         self.am.ensure_loaded()
-        self._renderers = [Renderer(self.am, background_key="sample3")
+        self._renderers = [Renderer(self.am, background_key="sample1")
                            for _ in range(n)]
 
         self.speed_multiplier = max(0.5, speed_multiplier)

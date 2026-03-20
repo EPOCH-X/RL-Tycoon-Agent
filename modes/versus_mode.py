@@ -147,8 +147,8 @@ class VersusMode(BaseMode):
 
         self.am = AssetManager()
         self.am.ensure_loaded()
-        self.renderer_left = Renderer(self.am, background_key="sample2")
-        self.renderer_right = Renderer(self.am, background_key="sample2")
+        self.renderer_left = Renderer(self.am, background_key="sample1")
+        self.renderer_right = Renderer(self.am, background_key="sample1")
 
         self.agent = load_agent(model_path, algo_name=algo_name)
         if hasattr(self.agent, 'deterministic'):
