@@ -21,10 +21,7 @@
     "target_entropy": "auto"
   },
   "network": {
-    "net_arch": [
-      256,
-      256
-    ],
+    "net_arch": [256, 256],
     "activation_fn": "relu"
   },
   "reward_shaping": {
@@ -53,7 +50,7 @@
     "game_end": 0.01,
     "net_profit_delta": 0.2,
     "rating_delta": 10.0,
-    "final_score_delta": 0.05
+    "final_score_delta": 1.0
   },
   "game_overrides": {
     "target_money": null,

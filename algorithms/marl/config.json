@@ -25,10 +25,7 @@
     "max_grad_norm": 0.5
   },
   "network": {
-    "net_arch": [
-      128,
-      128
-    ],
+    "net_arch": [128, 128],
     "activation_fn": "tanh"
   },
   "reward_shaping": {
@@ -57,7 +54,7 @@
     "game_end": 0.01,
     "net_profit_delta": 0.2,
     "rating_delta": 10.0,
-    "final_score_delta": 0.05,
+    "final_score_delta": 1.0,
     "_comment": "MARL에서는 상대적 성과도 보상에 반영됩니다.",
     "relative_money_bonus": 0.5,
     "relative_rating_bonus": 1.0

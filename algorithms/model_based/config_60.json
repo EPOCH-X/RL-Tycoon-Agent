@@ -18,20 +18,11 @@
     "learning_rate": 0.0003,
     "gamma": 0.99,
     "world_model_lr": 0.001,
-    "world_model_hidden": [
-      256,
-      256
-    ],
-    "policy_hidden": [
-      128,
-      128
-    ]
+    "world_model_hidden": [256, 256],
+    "policy_hidden": [128, 128]
   },
   "network": {
-    "net_arch": [
-      128,
-      128
-    ],
+    "net_arch": [128, 128],
     "activation_fn": "relu"
   },
   "reward_shaping": {
@@ -60,7 +51,7 @@
     "game_end": 0.01,
     "net_profit_delta": 0.2,
     "rating_delta": 10.0,
-    "final_score_delta": 0.05
+    "final_score_delta": 1.0
   },
   "game_overrides": {
     "target_money": null,
