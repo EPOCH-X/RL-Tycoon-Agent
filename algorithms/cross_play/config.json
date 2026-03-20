@@ -26,7 +26,13 @@
     "day_limit": 30
   },
   "reward_shaping": {
-    "serve_customer": 33.0,
+    "take_order": 5.0,
+    "submit_kitchen": 4.0,
+    "pickup_food": 4.0,
+    "serve_food": 8.0,
+    "pickup_drink": 2.0,
+    "serve_drink": 4.0,
+    "customer_payment": 1.0,
     "lost_customer": 0.0,
     "relative_money_bonus": 0.5,
     "relative_rating_bonus": 1.0
