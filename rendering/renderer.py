@@ -89,7 +89,6 @@ class Renderer:
         self._draw_trash_cans(surface, shop, ox, oy)
         # Layer 7: Hall tables
         self._draw_tables(surface, shop, ox, oy)
-        self._draw_purchasable_tables(surface, shop, ox, oy)
         # Layer 8: Seated customers
         self._draw_customers(surface, shop, ox, oy)
         # Layer 9: Chairs
@@ -657,16 +656,6 @@ class Renderer:
         positions = sorted(shop.bar_counter_positions)
 
         if not shop.bartender_hired:
-            for pos in positions:
-                rect = pygame.Rect(pos[0] * TILE_SIZE + ox,
-                                   pos[1] * TILE_SIZE + oy,
-                                   TILE_SIZE, TILE_SIZE)
-                if self.am.tile_bar:
-                    ghost = self.am.tile_bar.copy()
-                    ghost.set_alpha(120)
-                    surface.blit(ghost, rect.topleft)
-                else:
-                    pygame.draw.rect(surface, (60, 40, 80), rect)
             return
 
         # Draw wide bar image spanning all positions
