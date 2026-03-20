@@ -20,6 +20,7 @@ DEFAULT_WEIGHTS: dict[str, float] = {
     "buy_upgrade": 2.0,
     "food_unlock": 0.3,
     "no_upgrade": 0.0,
+    "upgrade_available": -0.3,
     "customer_waiting": -0.3,
     "waiting_customer_seated": 3.0,
     "waiting_customer_left": -8.0,

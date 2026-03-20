@@ -28,6 +28,14 @@ class Player(Entity):
         FACING_RIGHT: (1,  0),
     }
 
+    # Facing → animation state name mapping
+    _FACING_TO_ANIM = {
+        FACING_UP: "up",
+        FACING_DOWN: "down",
+        FACING_LEFT: "left",
+        FACING_RIGHT: "right",
+    }
+
     def __init__(self, x: float, y: float):
         super().__init__(x, y, color=COLORS["player"], sprite_key="player")
         self.facing = self.FACING_DOWN
@@ -37,6 +45,12 @@ class Player(Entity):
         # Each item: {"type": "order"|"food"|"drink", "table_id": int, ...}
         self.carrying: list[dict] = []
         self.carry_capacity: int = 1
+
+    # ── update animation state based on facing ───
+    def update_facing_animation(self):
+        """Set animation_state from current facing direction."""
+        self.animation_state = self._FACING_TO_ANIM.get(
+            self.facing, "idle")
 
     # ── carrying helpers ─────────────────────────
     @property
@@ -110,13 +124,16 @@ class Player(Entity):
         """First carried item (for UI display etc.)."""
         return self.carrying[0] if self.carrying else None
 
-    # ── rendering (Phase 1) ──────────────────────
+    # ── rendering ───────────────────────────────
     def render(self, surface: pygame.Surface, asset_manager,
                offset_x=0, offset_y=0):
         if not self.visible:
             return
 
         rect = self.get_rect(offset_x, offset_y)
+
+        # Set animation state from facing direction
+        self.update_facing_animation()
 
         # Try sprite first
         if (self.sprite_key
@@ -127,7 +144,7 @@ class Player(Entity):
             surface.blit(frame, rect.topleft)
             return
 
-        # Phase 1: coloured body + direction arrow
+        # Fallback: coloured body + direction arrow
         margin = TILE_SIZE // 6
         body = rect.inflate(-margin * 2, -margin * 2)
         col = COLORS["player_carry"] if self.carrying else COLORS["player"]

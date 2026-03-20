@@ -23,10 +23,7 @@
     "max_grad_norm": 0.5
   },
   "network": {
-    "net_arch": [
-      512,
-      256
-    ],
+    "net_arch": [512, 256],
     "activation_fn": "tanh"
   },
   "reward_shaping": {
@@ -37,7 +34,7 @@
     "pickup_drink": 5.0,
     "serve_drink": 5.0,
     "customer_payment": 0.0,
-    "lost_customer": -15.0,
+    "lost_customer": -20.0,
     "wrong_table": -1.5,
     "trash": -4.0,
     "trash_orphan": 1.0,

@@ -1,8 +1,8 @@
 {
   "algorithm": "CrossPlay",
-  "description": "교차 알고리즘 자기 대결 학습 – 서로 다른 학습된 모델이 경쟁",
+  "description": "교차 알고리즘 자기 대결 학습 – 기존 모델을 선택하여 다른 모델들과 대결 추가학습",
   "training": {
-    "total_timesteps": 200000,
+    "total_timesteps": 2000000,
     "eval_freq": 5000,
     "seed": 42,
     "opponent_swap_freq": 10000,

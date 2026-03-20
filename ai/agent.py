@@ -1,18 +1,23 @@
 """Agent loading helpers for trained and algorithm-specific models."""
 
+import json
 import os
+
 import numpy as np
 
 from config.settings import NUM_ACTIONS
 
 _ALGO_PATH_HINTS: dict[str, str] = {
     "a3c": "A3C",
+    "qrdqn": "QRDQN",
     "sac": "SAC",
     "dqn": "DQN",
     "marl": "MARL",
     "model_based": "ModelBased",
     "modelbased": "ModelBased",
     "ppo": "PPO",
+    "maskableppo": "MaskablePPO",
+    "maskable_ppo": "MaskablePPO",
     "discrete_sac": "DiscreteSAC",
     "discretesac": "DiscreteSAC",
     "dreamer": "Dreamer",
@@ -23,18 +28,35 @@ _ALGO_PATH_HINTS: dict[str, str] = {
 
 def _detect_algo_from_path(model_path: str) -> str | None:
     path_lower = model_path.replace("\\", "/").lower()
-    # 복합 키워드(예: discrete_sac, cross_play)를 먼저 체크
     for hint, algo in sorted(_ALGO_PATH_HINTS.items(), key=lambda x: -len(x[0])):
         if hint in path_lower:
             return algo
-    # 확장자 기반 추론
     if model_path.endswith(".pt"):
-        return None  # .pt지만 알고리즘 불명 → 디렉토리의 config 확인
+        return None
     parts = path_lower.replace("/", "_").replace("-", "_").split("_")
     for part in parts:
         if part in _ALGO_PATH_HINTS:
             return _ALGO_PATH_HINTS[part]
     return None
+
+
+def _load_saved_config(model_path: str) -> dict | None:
+    cfg_path = os.path.join(os.path.dirname(model_path), "train_config_used.json")
+    if not os.path.isfile(cfg_path):
+        return None
+    with open(cfg_path, encoding="utf-8") as f:
+        return json.load(f)
+
+
+def _detect_algo(model_path: str, algo_name: str | None) -> str | None:
+    if algo_name:
+        return algo_name
+    cfg = _load_saved_config(model_path)
+    if cfg:
+        configured = cfg.get("algorithm")
+        if configured:
+            return configured
+    return _detect_algo_from_path(model_path)
 
 
 class RandomAgent:
@@ -52,16 +74,27 @@ class RandomAgent:
 class TrainedAgent:
     """Wrap SB3 models with observation-shape adaptation."""
 
-    def __init__(self, model_path: str):
+    def __init__(self, model_path: str, algo_name: str | None = None):
         self.uses_action_mask = False
         self.deterministic = True
-        try:
+
+        normalized_algo = (algo_name or "").strip()
+        if normalized_algo == "MaskablePPO":
             from sb3_contrib import MaskablePPO
+
             self.model = MaskablePPO.load(model_path)
             self.uses_action_mask = True
-        except Exception:
-            from stable_baselines3 import PPO
-            self.model = PPO.load(model_path)
+        else:
+            try:
+                from stable_baselines3 import PPO
+
+                self.model = PPO.load(model_path)
+            except TypeError:
+                from sb3_contrib import MaskablePPO
+
+                self.model = MaskablePPO.load(model_path)
+                self.uses_action_mask = True
+
         self.expected_obs_shape = tuple(self.model.observation_space.shape)
 
     def _adapt_observation(self, obs):
@@ -85,7 +118,10 @@ class TrainedAgent:
         obs = self._adapt_observation(obs)
         if self.uses_action_mask:
             action, _ = self.model.predict(
-                obs, deterministic=self.deterministic, action_masks=action_mask)
+                obs,
+                deterministic=self.deterministic,
+                action_masks=action_mask,
+            )
             return int(action)
         action, _ = self.model.predict(obs, deterministic=self.deterministic)
         return int(action)
@@ -107,7 +143,14 @@ class AlgorithmAgent:
 
         trainer_class = get_algorithm(algo_name)
         self.trainer = trainer_class()
-        self.trainer.build()
+
+        model_dir = os.path.dirname(model_path) or "."
+        saved_cfg_path = os.path.join(model_dir, "train_config_used.json")
+        cfg = None
+        if os.path.isfile(saved_cfg_path):
+            with open(saved_cfg_path, encoding="utf-8") as f:
+                cfg = json.load(f)
+        self.trainer.build(cfg=cfg)
         self.trainer.load(model_path)
         self.deterministic = True
 
@@ -141,27 +184,21 @@ def load_agent(model_path: str | None = None, algo_name: str | None = None):
     if model_path is None:
         return RandomAgent()
 
-    if algo_name is None:
-        algo_name = _detect_algo_from_path(model_path)
-
+    algo_name = _detect_algo(model_path, algo_name)
     clean_path = model_path[:-3] if model_path.endswith(".pt") else model_path
 
-    if algo_name and algo_name != "PPO":
+    if model_path.endswith(".zip"):
+        return TrainedAgent(model_path, algo_name=algo_name)
+
+    if algo_name and algo_name not in ("PPO", "MaskablePPO"):
         return AlgorithmAgent(algo_name, clean_path)
 
-    if algo_name == "PPO" or model_path.endswith(".zip"):
-        return TrainedAgent(model_path)
-
     try:
-        return TrainedAgent(model_path)
+        return TrainedAgent(model_path, algo_name=algo_name)
     except Exception:
-        config_path = os.path.join(os.path.dirname(model_path), "train_config_used.json")
-        if os.path.isfile(config_path):
-            import json
-
-            with open(config_path, encoding="utf-8") as f:
-                cfg = json.load(f)
-            detected = cfg.get("algorithm", "").upper()
-            if detected and detected != "PPO":
+        cfg = _load_saved_config(model_path)
+        if cfg:
+            detected = cfg.get("algorithm", "")
+            if detected and detected not in ("PPO", "MaskablePPO"):
                 return AlgorithmAgent(detected, clean_path)
         raise

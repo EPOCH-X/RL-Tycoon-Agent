@@ -1,14 +1,13 @@
 """RL Tycoon – entry point.
 
-Launch the game in one of three modes:
-    python main.py                           # interactive menu
-    python main.py --mode human              # solo play (30 days default)
-    python main.py --mode ai --model models/exp16_postmerge_finish_bias/best_model.zip
-    python main.py --mode human --days 60    # solo play 60 days
-    python main.py --mode versus             # human vs AI
-    python main.py --mode versus --days 60   # 60-day versus
-    python main.py --mode versus --model models/ppo/best_model.zip
-    python main.py --mode watch  --model models/ppo/best_model.zip --speed 2
+Launch the game in one of the supported modes:
+    python main.py                                      # interactive menu
+    python main.py --mode human                         # solo play (30 days default)
+    python main.py --mode human --days 60              # solo play 60 days
+    python main.py --mode ai --model models/foo.zip    # AI-only live run
+    python main.py --mode versus --model models/foo.zip
+    python main.py --mode watch --model models/foo.zip --speed 2
+    python main.py --mode tournament --participants models/a.zip models/b.zip
 """
 
 import argparse
@@ -42,11 +41,11 @@ def _show_menu():
     ACCENT = (255, 215, 0)
 
     buttons = [
-        {"label": "🎮  솔로 모드 (30일)", "mode": "human", "days": 30, "rect": None},
-        {"label": "🎮  솔로 모드 (60일)", "mode": "human", "days": 60, "rect": None},
-        {"label": "⚔️  대결 모드 (30일)", "mode": "versus", "days": 30, "rect": None},
-        {"label": "⚔️  대결 모드 (60일)", "mode": "versus", "days": 60, "rect": None},
-        {"label": "🏆  토너먼트 모드", "mode": "tournament", "days": 30, "rect": None},
+        {"label": "[ 솔로 모드 (30일) ]", "mode": "human", "days": 30, "rect": None},
+        {"label": "[ 솔로 모드 (60일) ]", "mode": "human", "days": 60, "rect": None},
+        {"label": "[ 대결 모드 (30일) ]", "mode": "versus", "days": 30, "rect": None},
+        {"label": "[ 대결 모드 (60일) ]", "mode": "versus", "days": 60, "rect": None},
+        {"label": "[ 토너먼트 모드 ]", "mode": "tournament", "days": 30, "rect": None},
     ]
 
     BTN_W, BTN_H = 360, 52
@@ -100,8 +99,11 @@ def _show_menu():
                               btn["rect"].centery - lbl.get_height() // 2))
 
         # Footer
-        foot = sub_font.render("ESC: 종료  |  대결 모드에서 --model로 AI 모델 지정 가능",
-                               True, (120, 120, 140))
+        foot = sub_font.render(
+            "ESC: 종료  |  CLI에서 ai/versus/watch/tournament 추가 옵션 지원",
+            True,
+            (120, 120, 140),
+        )
         screen.blit(foot, (WIDTH // 2 - foot.get_width() // 2, HEIGHT - 36))
 
         pygame.display.flip()
@@ -124,7 +126,7 @@ def main():
         help="Tournament participant model paths")
     parser.add_argument(
         "--algo", type=str, default=None,
-        help="Algorithm name for watch mode (PPO, DQN, A3C, SAC, etc.)")
+        help="Algorithm name for watch mode (PPO, DQN, A3C, SAC, MaskablePPO, etc.)")
     parser.add_argument(
         "--target-money", type=int, default=None,
         help="Target money to win (default: 1500)")

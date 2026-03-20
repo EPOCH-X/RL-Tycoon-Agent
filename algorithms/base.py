@@ -17,7 +17,7 @@ class BaseTrainer(ABC):
         """설정(cfg)으로부터 환경, 모델, 콜백 등을 초기화합니다."""
 
     @abstractmethod
-    def train(self) -> dict[str, Any]:
+    def train(self, resume_path: str | None = None) -> dict[str, Any]:
         """학습을 실행하고 결과 메트릭을 반환합니다."""
 
     @abstractmethod

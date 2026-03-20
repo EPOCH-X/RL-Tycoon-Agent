@@ -27,7 +27,8 @@ class HumanMode(BaseMode):
                          time_scale=time_scale)
 
         self.am = AssetManager()
-        self.renderer = Renderer(self.am)
+        self.am.ensure_loaded()
+        self.renderer = Renderer(self.am, background_key="sample1")
         self.ranking = RankingManager()
         self._interact_pressed = False
         self._result_recorded = False
