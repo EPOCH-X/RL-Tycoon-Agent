@@ -55,7 +55,7 @@
     "game_end": 0.01,
     "net_profit_delta": 0.2,
     "rating_delta": 3.0,
-    "final_score_delta": 0.03
+    "final_score_delta": 1.0
   },
   "game_overrides": {
     "target_money": null,
