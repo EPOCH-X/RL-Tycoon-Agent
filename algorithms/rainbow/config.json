@@ -1,30 +1,36 @@
 {
-  "_comment": "PPO 전용 하이퍼파라미터. Stable-Baselines3 PPO 기반.",
-  "algorithm": "PPO",
-  "policy": "MlpPolicy",
+  "_comment": "Rainbow DQN 전용 하이퍼파라미터. NoisyNet + PER + C51 + N-step + Double + Dueling.",
+  "algorithm": "Rainbow",
   "training": {
-    "total_timesteps": 20000000,
-    "n_envs": 6,
+    "total_timesteps": 10000000,
+    "n_envs": 1,
     "seed": 42,
     "eval_freq": 5000,
-    "patience": 150
+    "patience": 100,
+    "n_eval_episodes": 5
   },
   "hyperparameters": {
-    "learning_rate": 0.0003,
-    "lr_schedule": "linear",
-    "n_steps": 2048,
+    "learning_rate": 0.0001,
+    "buffer_size": 200000,
+    "learning_starts": 5000,
     "batch_size": 128,
-    "n_epochs": 10,
     "gamma": 0.99,
-    "gae_lambda": 0.95,
-    "clip_range": 0.2,
-    "ent_coef": 0.05,
-    "vf_coef": 0.5,
-    "max_grad_norm": 0.5
+    "train_freq": 1,
+    "gradient_steps": 1,
+    "target_update_interval": 2000,
+    "max_grad_norm": 10.0,
+    "n_step": 3,
+    "atoms": 51,
+    "v_min": -50.0,
+    "v_max": 100.0,
+    "noisy_std": 0.5,
+    "per_alpha": 0.6,
+    "per_beta_start": 0.4,
+    "per_beta_frames": 600000
   },
   "network": {
-    "net_arch": [512, 256],
-    "activation_fn": "tanh"
+    "net_arch": [256, 256],
+    "activation_fn": "relu"
   },
   "reward_shaping": {
     "take_order": 6.0,

@@ -1,30 +1,36 @@
 {
-  "_comment": "PPO 전용 하이퍼파라미터. Stable-Baselines3 PPO 기반.",
-  "algorithm": "PPO",
-  "policy": "MlpPolicy",
+  "_comment": "DreamerV3 전용 하이퍼파라미터. RSSM 세계 모델 + 상상 기반 Actor-Critic.",
+  "algorithm": "DreamerV3",
   "training": {
-    "total_timesteps": 20000000,
-    "n_envs": 6,
+    "total_timesteps": 10000000,
+    "n_envs": 4,
     "seed": 42,
     "eval_freq": 5000,
-    "patience": 150
+    "patience": 50,
+    "n_eval_episodes": 5
   },
   "hyperparameters": {
-    "learning_rate": 0.0003,
-    "lr_schedule": "linear",
-    "n_steps": 2048,
-    "batch_size": 128,
-    "n_epochs": 10,
+    "learning_rate_world": 0.0003,
+    "learning_rate_actor": 0.0001,
+    "learning_rate_critic": 0.0003,
+    "buffer_size": 500000,
+    "learning_starts": 20000,
+    "batch_size": 64,
+    "seq_len": 32,
     "gamma": 0.99,
-    "gae_lambda": 0.95,
-    "clip_range": 0.2,
-    "ent_coef": 0.05,
-    "vf_coef": 0.5,
-    "max_grad_norm": 0.5
+    "lambda_": 0.95,
+    "imagination_horizon": 5,
+    "world_model_train_freq": 100,
+    "max_grad_norm": 1.0,
+    "entropy_coef": 0.003,
+    "rssm_hidden": 256,
+    "rssm_stochastic": 32,
+    "rssm_discrete_classes": 32,
+    "free_nats": 1.0
   },
   "network": {
-    "net_arch": [512, 256],
-    "activation_fn": "tanh"
+    "net_arch": [256, 256],
+    "activation_fn": "relu"
   },
   "reward_shaping": {
     "take_order": 6.0,

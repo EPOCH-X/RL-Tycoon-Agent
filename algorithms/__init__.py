@@ -3,11 +3,14 @@
 각 하위 폴더는 독립된 알고리즘 구현체를 포함합니다:
     ppo/        – Proximal Policy Optimization (SB3)
     dqn/        – Deep Q-Network (SB3)
+    rainbow/    – Rainbow DQN (Noisy + PER + C51 + N-step)
     qrdqn/      – Quantile Regression DQN (SB3-Contrib)
     a3c/        – Asynchronous Advantage Actor-Critic (PyTorch 직접 구현)
     sac/        – Soft Actor-Critic (SB3, Discrete 래퍼)
     marl/       – Multi-Agent RL (Self-play + Independent PPO)
     model_based/– Model-Based RL (World-Model + MPC)
+    dreamerv3/  – DreamerV3 alias/config variant
+    muzero/     – MuZero-style latent dynamics + MCTS
 
 공통 유틸리티:
     base.py     – 알고리즘 공통 인터페이스

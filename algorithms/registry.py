@@ -10,6 +10,7 @@ if TYPE_CHECKING:
 ALGORITHM_REGISTRY: dict[str, str] = {
     "PPO":         "algorithms.ppo.trainer.PPOTrainer",
     "DQN":         "algorithms.dqn.trainer.DQNTrainer",
+    "Rainbow":     "algorithms.rainbow.trainer.RainbowTrainer",
     "QRDQN":       "algorithms.qrdqn.trainer.QRDQNTrainer",
     "A3C":         "algorithms.a3c.trainer.A3CTrainer",
     "SAC":         "algorithms.sac.trainer.SACTrainer",
@@ -17,6 +18,8 @@ ALGORITHM_REGISTRY: dict[str, str] = {
     "ModelBased":  "algorithms.model_based.trainer.ModelBasedTrainer",
     "DiscreteSAC": "algorithms.discrete_sac.trainer.DiscreteSACTrainer",
     "Dreamer":     "algorithms.dreamer.trainer.DreamerTrainer",
+    "DreamerV3":   "algorithms.dreamerv3.trainer.DreamerV3Trainer",
+    "MuZero":      "algorithms.muzero.trainer.MuZeroTrainer",
     "CrossPlay":   "algorithms.cross_play.trainer.CrossPlayTrainer",
 }
 

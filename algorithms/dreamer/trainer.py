@@ -14,7 +14,6 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch.utils.tensorboard import SummaryWriter
 
 from algorithms.base import BaseTrainer
 from algorithms.common import load_algo_config, make_env, save_run_config, EarlyStopTracker
@@ -182,6 +181,8 @@ class DreamerTrainer(BaseTrainer):
         eval_env = make_env(0, self._seed + 1000, self._game_ov, self._reward_cfg)()
         early_stop = EarlyStopTracker(patience=50, min_delta=1.0, verbose=1,
                           metric_name="mean_final_score")
+
+        from torch.utils.tensorboard import SummaryWriter
 
         writer = SummaryWriter(os.path.join(self.save_path, "tb_logs"))
         eval_timesteps, eval_results, eval_final_scores = [], [], []

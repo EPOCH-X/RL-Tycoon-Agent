@@ -137,6 +137,7 @@ def _find_latest_version(base_path: str) -> str | None:
 ALGO_KR: dict[str, str] = {
     "PPO":        "근위 정책 최적화",
     "DQN":        "심층 Q-네트워크",
+    "Rainbow":    "레인보우 DQN",
     "QRDQN":      "분위수 회귀 심층 Q-네트워크",
     "A3C":        "비동기 어드밴티지 액터-크리틱",
     "SAC":        "소프트 액터-크리틱",
@@ -144,6 +145,8 @@ ALGO_KR: dict[str, str] = {
     "ModelBased": "모델기반 강화학습",
     "DiscreteSAC": "이산 소프트 액터-크리틱 (분위수)",
     "Dreamer":     "DreamerV3 세계모델 기반",
+    "DreamerV3":   "드리머 V3 세계모델 기반",
+    "MuZero":      "뮤제로 계획 기반 강화학습",
     "CrossPlay":   "교차 알고리즘 대결 학습",
 }
 
