@@ -70,6 +70,9 @@ class TrainedAgent:
             except ImportError:
                 raise ImportError(
                     "sb3-contrib 패키지가 필요합니다: pip install sb3-contrib")
+        elif algo_name == "DQN":
+            from stable_baselines3 import DQN
+            self.model = DQN.load(model_path)
         else:
             from stable_baselines3 import PPO
             self.model = PPO.load(model_path)
