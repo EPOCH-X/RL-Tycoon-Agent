@@ -197,6 +197,23 @@ class CrossPlayTrainer(BaseTrainer):
                     algo = json.load(f).get("algorithm", "PPO")
             else:
                 algo = "PPO"
+
+        # CrossPlay 저장물은 실제로 내부 SB3 학습기(PPO/DQN)를 담고 있습니다.
+        # 선택 시 이를 다시 CrossPlay 커스텀 트레이너로 재귀 로드하면
+        # 대화형 선택이 중첩되고 resume_path가 잘못 전달됩니다.
+        if algo == "CrossPlay":
+            cfg_path = os.path.join(os.path.dirname(model_path),
+                                    "train_config_used.json")
+            real_algo = "PPO"
+            if os.path.isfile(cfg_path):
+                with open(cfg_path, encoding="utf-8") as f:
+                    cp_cfg = json.load(f)
+                learner = cp_cfg.get("_crossplay_learner", {})
+                candidate = learner.get("algo", "PPO")
+                if candidate in _SB3_ALGO_MAP:
+                    real_algo = candidate
+            algo = real_algo
+
         mtype = "sb3" if algo in _SB3_ALGO_MAP else "custom"
         return {"algo": algo, "path": model_path, "type": mtype}
 
@@ -232,10 +249,19 @@ class CrossPlayTrainer(BaseTrainer):
                 print("  숫자를 입력하세요.")
 
         sel = all_models[choice - 1]
-        algo = sel["algo"]
-        mtype = "sb3" if algo in _SB3_ALGO_MAP else "custom"
-        print(f"  → 선택: [{algo}] {sel['path']}  ({mtype})")
-        return {"algo": algo, "path": sel["path"], "type": mtype}
+        resolved = self._resolve_model_path(sel["path"])
+        assert resolved is not None
+        display_algo = sel["algo"]
+        resolved_algo = resolved["algo"]
+        mtype = resolved["type"]
+        if display_algo == resolved_algo:
+            print(f"  → 선택: [{resolved_algo}] {sel['path']}  ({mtype})")
+        else:
+            print(
+                f"  → 선택: [{display_algo}] {sel['path']}  "
+                f"(내부 학습기={resolved_algo}, {mtype})"
+            )
+        return resolved
 
     @staticmethod
     def _ask_learner_algo() -> str:
