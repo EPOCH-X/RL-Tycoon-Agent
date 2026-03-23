@@ -1,224 +1,344 @@
 # RL-Tycoon-Agent
 
-Pygame 기반 레스토랑 타이쿤 게임에 강화학습 에이전트를 붙여 실험하는 프로젝트입니다. 사람이 직접 플레이할 수 있고, 학습된 모델과 대결하거나 관전할 수도 있습니다.
+Pygame 기반 레스토랑 타이쿤 게임에 강화학습 실험 환경을 결합한 프로젝트입니다. 플레이어가 직접 운영할 수 있는 게임을 유지하면서, 동일한 규칙 위에서 여러 강화학습 알고리즘을 학습시키고 `versus`, `watch`, `tournament` 모드로 성능을 비교할 수 있도록 구성했습니다.
 
-## 현재 기준 요약
+이 프로젝트의 핵심은 단순 이동 제어가 아니라 운영 의사결정까지 학습한다는 점입니다. 현재 에이전트는 이동, 상호작용, 대기뿐 아니라 업그레이드 구매 9종과 특성 선택 3종까지 포함한 총 18개 행동을 직접 선택합니다.
 
-- 실행 환경: Python 3.12, Pygame 2.6, Gymnasium
-- 지원 모드: `human`, `versus`, `watch`, `tournament`
-- 지원 알고리즘: `PPO`, `DQN`, `QRDQN`, `A3C`, `SAC`, `DiscreteSAC`, `Dreamer`, `MARL`, `ModelBased`, `CrossPlay`
-- 기본 맵 크기: 16 x 10 타일
-- 타일 크기: 64 px
-- 게임 로직 속도: 0.2초당 1스텝
-- 기본 목표 금액: `$1500`
-- 기본 일수 제한: `30일`
-- RL 행동 공간: `18개` 이산 행동
-- RL 관측 공간: `150차원` 연속값 벡터
+## 프로젝트 요약
 
-가장 큰 최근 변경점은 에이전트가 업그레이드 구매와 특성 선택까지 직접 학습하도록 바뀌었다는 점입니다. 예전처럼 하드코딩된 자동 구매나 자동 특성 선택에 의존하지 않습니다.
+- 엔진: Python 3.12, Pygame 2.6, Gymnasium
+- 기본 게임 규칙: 30일, 60일, 1스텝 `0.2초`
+- 맵 크기: `16 x 10` 타일, 타일 크기 `64px`
+- RL 행동 공간: `Discrete(18)`
+- RL 관측 공간: `Box(shape=(150,))`
+- 실행 모드: `human`, `versus`, `watch`, `tournament`
+- 학습 런처: `python -m algorithms.train_launcher`
+- 현재 등록 알고리즘: `PPO`, `DQN`, `Rainbow`, `QRDQN`, `A3C`, `SAC`, `MARL`, `ModelBased`, `DiscreteSAC`, `Dreamer`, `DreamerV3`, `MuZero`, `CrossPlay`
 
-## 빠른 시작
+## 최종 결과 요약
+
+현재 프로젝트 마무리 기준 토너먼트 결과에서 가장 좋은 성능을 보인 모델은 `DiscreteSAC` 계열입니다.
+
+```text
+╔══════════════════════════════════════════
+║      토너먼트 최종 결과
+║ 1st #1 discretesac_조영 스코어: 53,944 WIN
+║ 2nd #2 crossplay_영곤   스코어: 25,697 WIN
+║ 3rd #3 ppo_민승         스코어: 18,132
+```
+
+핵심 해석:
+
+- 현재 저장된 실험 결과 기준 최고 성능 모델은 `models/discretesac_조영/best_model.pt`
+- 교차 대전 기반 추가학습 모델인 `CrossPlay`도 강한 성능을 보였지만, 최종 스코어는 `DiscreteSAC`보다 낮음
+- `PPO`는 안정적으로 동작하지만 이번 프로젝트의 최종 경쟁 결과에서는 상위 1위 모델을 넘지 못함
+
+즉, 이 프로젝트의 최종 강화학습 성능 결론은 `DiscreteSAC > CrossPlay > PPO` 입니다.
+
+## 왜 이 프로젝트가 의미 있었는가
+
+일반적인 게임 RL 예제와 달리 이 프로젝트는 다음 특징을 갖습니다.
+
+- 실시간 운영형 시뮬레이션에서 장기 의사결정을 학습함
+- 업그레이드 구매와 특성 선택이 정책 안에 포함됨
+- 최종 평가를 `final_score` 기준으로 비교할 수 있음
+- 여러 알고리즘을 같은 게임 환경에서 비교 가능함
+- 토너먼트 모드로 최대 4개 모델을 같은 화면에서 직접 검증 가능함
+
+## 설치
+
+기본 설치:
 
 ```bash
 pip install -r requirements.txt
-python main.py
 ```
 
-다른 패키지 세트가 필요하면 아래 파일도 사용할 수 있습니다.
+GPU 환경에 따라 PyTorch는 별도 설치가 필요할 수 있습니다. 현재 `requirements.txt`에는 기본 패키지만 정리되어 있고, CUDA 예시는 파일 내 주석으로 남겨져 있습니다.
 
-```bash
-pip install -r 5060requirements.txt
-```
+## 실행 방법
 
-## 게임 실행
-
-대화형 메뉴로 시작:
+메인 메뉴 실행:
 
 ```bash
 python main.py
 ```
 
-직접 모드 지정:
+직접 모드 실행:
 
 ```bash
 python main.py --mode human
 python main.py --mode human --days 60
 python main.py --mode versus
-python main.py --mode versus --model models/ppo_v5/best_model.zip
-python main.py --mode watch --model models/discretesac_v2/best_model --speed 2
+python main.py --mode watch
 python main.py --mode tournament --speed 3
 ```
 
-### CLI 옵션
+모델 지정 예시:
 
-| 옵션             | 설명                                                     |
-| ---------------- | -------------------------------------------------------- |
-| `--mode`         | `human`, `versus`, `watch`, `tournament`                 |
-| `--model`        | 불러올 학습 모델 경로. 주로 `versus`, `watch`에서 사용   |
-| `--algo`         | 알고리즘 이름 수동 지정. 경로 자동 판별이 애매할 때 사용 |
-| `--speed`        | `watch`, `tournament` 속도 배수                          |
-| `--target-money` | 목표 금액 강제 지정                                      |
-| `--day-limit`    | 일수 제한 강제 지정                                      |
-| `--days`         | `30` 또는 `60`, `--day-limit` 축약형                     |
+```bash
+python main.py --mode versus --model models/ppo/best_model.zip
+python main.py --mode watch --model models/dqn/best_model.zip --speed 2
+python main.py --mode watch --model models/discretesac/best_model.pt --algo DiscreteSAC
+```
 
-## 플레이 모드
+## 게임 모드
 
 ### Human
 
 - 플레이어가 직접 레스토랑을 운영합니다.
-- 게임 오버 결과는 랭킹 시스템에 기록됩니다.
+- 주문, 조리, 서빙, 업그레이드, 특성 선택을 모두 수동으로 수행합니다.
 
 ### Versus
 
-- 사람과 AI가 각각 동일한 규칙의 독립된 매장을 운영합니다.
-- AI 화면은 우측 하단 PiP로 표시됩니다.
-- 모델을 지정하지 않으면 `models/` 아래의 학습 모델을 자동 탐색하거나 선택 UI를 띄웁니다.
-- AI가 업그레이드나 특성을 선택하면 화면 중앙에 잠깐 알림이 뜹니다.
+- 플레이어와 AI가 각각 독립된 매장을 동시에 운영합니다.
+- 학습된 모델을 지정하면 사람과 AI의 운영 성능을 바로 비교할 수 있습니다.
+- AI는 확률적 정책으로 동작하도록 구성되어 있어 실제 학습된 행동 성향을 보기 좋습니다.
 
 ### Watch
 
-- 학습된 모델 1개를 전체 화면으로 관전합니다.
-- 최근 행동과 행동 분포를 우측 패널에서 볼 수 있습니다.
-- `D` 키로 결정적 정책과 확률적 정책을 전환할 수 있습니다.
+- 단일 AI 모델을 관전하는 모드입니다.
+- 현재 행동, 행동 분포, 속도 배수를 함께 볼 수 있습니다.
 
 ### Tournament
 
-- `models/` 아래에서 최대 4개 모델을 자동 탐색해 동시에 경쟁시킵니다.
-- 각 참가자 매장은 2x2 레이아웃으로 렌더링됩니다.
-- 각 패널에 업그레이드와 특성 선택 알림이 표시됩니다.
+- `models/` 아래 학습된 모델을 자동 탐색해 최대 4개까지 동시에 경쟁시킵니다.
+- 같은 조건에서 최종 스코어를 비교하기 때문에 프로젝트 최종 평가에 가장 적합한 모드입니다.
+- 현재는 중앙 오버레이형 스코어보드를 사용합니다.
 
-## 조작법
+## 조작 키
 
-### Human / Versus 인간 플레이어
+### Human / Versus 플레이어
 
-| 키               | 동작                      |
-| ---------------- | ------------------------- |
-| `WASD`, 방향키   | 이동                      |
-| `Space`, `Enter` | 상호작용                  |
-| `U`              | 업그레이드 메뉴 열기/닫기 |
-| `Tab`            | 업그레이드 탭 순환        |
-| `1` ~ `9`        | 업그레이드 구매           |
-| `1`, `2`, `3`    | 특성 선택                 |
-| `R`              | 게임 종료 후 재시작       |
-| `ESC`            | 종료 또는 메뉴 닫기       |
+- `WASD`, 방향키: 이동
+- `Space`, `Enter`: 상호작용
+- `U`: 업그레이드 메뉴 열기/닫기
+- `Tab`: 업그레이드 탭 순환
+- `1` ~ `9`: 업그레이드 구매
+- `1`, `2`, `3`: 특성 선택
+- `R`: 게임 종료 후 재시작
+- `ESC`: 종료 또는 메뉴 닫기
 
 ### Watch / Tournament
 
-| 키       | 동작                    |
-| -------- | ----------------------- |
-| `D`      | 결정적/확률적 정책 전환 |
-| `↑`, `↓` | 속도 조절               |
-| `R`      | 종료 후 재시작          |
-| `ESC`    | 종료                    |
+- `D`: 결정적/확률적 정책 전환
+- `↑`, `↓`: 속도 조절
+- `R`: 종료 후 재시작
+- `ESC`: 종료
 
-## 게임 시스템 개요
+## 강화학습 환경 설계
 
-- 손님은 입장 후 빈 테이블이 있으면 착석하고, 없으면 대기열에서 기다립니다.
-- 플레이어나 종업원이 주문 접수, 주방 전달, 음식 수거, 서빙을 처리합니다.
-- 바텐더를 고용하면 음료 시스템이 활성화됩니다.
-- 업그레이드와 특성은 매장 운영 능력과 RL 정책 모두에 큰 영향을 줍니다.
-- 평점과 순이익이 최종 스코어에 반영됩니다.
+현재 RL 환경은 `ai/gym_env.py`를 기준으로 구현되어 있습니다.
 
-현재 기본 설정 기준 주요 수치:
+### 행동 공간
 
-- 최대 동시 착석 손님: `4`
-- 최대 대기열: `6`
-- 특성 제안 주기: `4일마다`
-- 특성 선택지 수: `3개`
-- 기본 테이블 수: `4개`
-- 구매 가능한 추가 테이블 수: `10개`
+총 18개 이산 행동:
 
-## RL 인터페이스
+- 이동 4개: 위, 아래, 왼쪽, 오른쪽
+- 기본 행동 2개: 상호작용, 대기
+- 업그레이드 구매 9개: 각 업그레이드별 개별 행동
+- 특성 선택 3개: 제시된 특성 3개 중 하나 선택
 
-현재 환경은 [ai/gym_env.py](ai/gym_env.py) 기준으로 다음 인터페이스를 사용합니다.
+이 구조 덕분에 에이전트는 단순히 손님을 따라다니는 정책이 아니라, 언제 업그레이드를 사고 어떤 특성을 선택할지까지 포함한 운영 전략을 학습합니다.
 
-- 행동 공간: `Discrete(18)`
-- 관측 공간: `Box(shape=(150,))`
-- 업그레이드 구매 액션: `9개`
-- 특성 선택 액션: `3개`
+### 관측 공간
 
-행동 구성:
+관측 길이는 기본 맵 기준 `150`입니다.
 
-| 구분            | 액션 수 | 설명                         |
-| --------------- | ------- | ---------------------------- |
-| 이동/기본 행동  | 6       | 상하좌우, 상호작용, 대기     |
-| 업그레이드 구매 | 9       | 업그레이드 종류별 개별 액션  |
-| 특성 선택       | 3       | 제시된 특성 3개 중 하나 선택 |
-
-관측에는 다음 정보가 포함됩니다.
+포함 정보:
 
 - 플레이어 위치, 방향, 운반 상태
+- 이동 가능 여부
 - 테이블별 손님 상태와 인내심
 - 주방 상태
-- 주방, 바, 쓰레기통 위치
+- 핵심 상호작용 지점 좌표
 - 현재 목표 방향 벡터
 - 대기열 상태
-- 돈, 남은 시간, 평점, 종업원 수
-- 업그레이드별 레벨, 구매 가능 여부, 해금 여부
-- 현재 특성 선택 상태와 제시된 특성 정보
+- 돈, 날짜, 평점 등 게임 상태
+- 업그레이드별 상태
+- 특성 선택 진행 상태
 
-## 학습
+### 점수 체계
 
-통합 런처는 [algorithms/train_launcher.py](algorithms/train_launcher.py) 입니다.
+최종 평가는 `core/shop.py` 기준 `final_score`를 사용합니다.
 
-### 기본 학습
+현재 계산식:
+
+$$
+final\_score = net\_profit \times \left(1 + \frac{shop\_rating\_stars}{10}\right)
+$$
+
+여기서 `net_profit`은 현재 코드상 실제 순이익이라기보다 매장 총 수입 `total_earned`를 사용합니다. 따라서 높은 매출과 높은 평점을 동시에 만드는 정책이 유리합니다.
+
+## 학습 방법
+
+통합 학습 진입점은 `algorithms/train_launcher.py` 입니다.
+
+### 새 학습 시작
 
 ```bash
 python -m algorithms.train_launcher --algo PPO
-python -m algorithms.train_launcher --algo PPO --days 60
+python -m algorithms.train_launcher --algo DQN
 python -m algorithms.train_launcher --algo QRDQN
+python -m algorithms.train_launcher --algo Rainbow
+python -m algorithms.train_launcher --algo A3C
+python -m algorithms.train_launcher --algo SAC
+python -m algorithms.train_launcher --algo MARL
+python -m algorithms.train_launcher --algo ModelBased
+python -m algorithms.train_launcher --algo DiscreteSAC
+python -m algorithms.train_launcher --algo Dreamer
+python -m algorithms.train_launcher --algo DreamerV3
+python -m algorithms.train_launcher --algo MuZero
+python -m algorithms.train_launcher --algo CrossPlay
+```
+
+60일 설정 예시:
+
+```bash
+python -m algorithms.train_launcher --algo PPO --days 60
 python -m algorithms.train_launcher --algo DiscreteSAC --days 60
-python -m algorithms.train_launcher --algo CrossPlay --timesteps 200000
 ```
 
 ### 이어서 학습
 
+SB3 계열 `.zip` 모델 예시:
+
 ```bash
-python -m algorithms.train_launcher --algo PPO --resume
-python -m algorithms.train_launcher --algo DiscreteSAC --resume
+python -m algorithms.train_launcher --algo PPO --resume --save-path models/ppo_민승
+python -m algorithms.train_launcher --algo CrossPlay --resume --save-path models/crossplay_영곤
 ```
+
+커스텀 `.pt` 계열은 `checkpoint.pt`가 있어야 재개가 가능합니다. `best_model.pt`만 있는 경우는 추론용 가중치로는 사용할 수 있지만 학습 재개용 상태가 없을 수 있습니다.
 
 ### 평가
 
 ```bash
-python -m algorithms.train_launcher --algo PPO --evaluate --model models/ppo_v5/best_model.zip
-python -m algorithms.train_launcher --algo DiscreteSAC --evaluate --model models/discretesac_v2/best_model
+python -m algorithms.train_launcher --algo PPO --evaluate --model models/ppo_민승/best_model.zip
+python -m algorithms.train_launcher --algo CrossPlay --evaluate --model models/crossplay_영곤/best_model.zip
+python -m algorithms.train_launcher --algo DiscreteSAC --evaluate --model models/discretesac_조영/best_model
 ```
 
-### 벤치마크
+## 모델 파일 형식
 
-```bash
-python -m algorithms.train_launcher --benchmark --timesteps 100000
-python -m algorithms.compare_results
-```
+이 프로젝트는 두 가지 주요 모델 저장 형식을 사용합니다.
 
-## 모델 파일 규칙
+### `.zip`
 
-프로젝트는 아래 파일들을 자동 탐색 대상으로 사용합니다.
+- 주로 Stable-Baselines3 계열 모델에서 사용
+- 예: `PPO`, `DQN`, `CrossPlay`
+- 대표 파일명: `best_model.zip`, `final_model.zip`, `checkpoint.zip`
 
-- `best_model.zip`
-- `final_model.zip`
-- `best_model.pt`
-- `final_model.pt`
-- `train_config_used.json`
+### `.pt`
 
-`watch`, `versus`, `tournament`, `cross-play`는 위 파일 규칙을 기준으로 모델과 알고리즘을 자동 판별합니다.
+- 커스텀 PyTorch 트레이너 계열에서 사용
+- 예: `DiscreteSAC`, `A3C`, `SAC`, `ModelBased`, `Dreamer`
+- 대표 파일명: `best_model.pt`, `final_model.pt`, `checkpoint.pt`
+
+주의:
+
+- `.zip`는 보통 SB3 계열로 로드됩니다.
+- `.pt`는 커스텀 트레이너로 로드됩니다.
+- 경로만으로 알고리즘 판별이 애매하면 `--algo`를 함께 지정하는 것이 안전합니다.
+
+## 현재 모델 폴더 상태
+
+현재 `models/` 폴더에는 다음 실험 결과가 있습니다.
+
+- `crossplay_영곤`
+- `discretesac_조영`
+- `discrete_sac`
+- `ppo_민승`
+- `ppo_정은`
+
+현재 확인된 대표 파일:
+
+- `models/discretesac_조영/best_model.pt`
+- `models/crossplay_영곤/best_model.zip`
+- `models/crossplay_영곤/checkpoint.zip`
+- `models/ppo_민승/best_model.zip`
+- `models/ppo_민승/checkpoint.zip`
+
+즉, 프로젝트 최종 보고 기준으로는 다음처럼 정리할 수 있습니다.
+
+- 최고 성능 모델: `discretesac_조영`
+- 재현성과 학습 로그 보존 측면에서 관리가 잘 된 모델: `crossplay_영곤`, `ppo_민승`
 
 ## 폴더 구조
 
-| 경로                     | 역할                                         |
-| ------------------------ | -------------------------------------------- |
-| [main.py](main.py)       | 게임 진입점, 메뉴 및 모드 선택               |
-| [ai](ai)                 | Gym 환경, 에이전트 로더, 보상 계산           |
-| [algorithms](algorithms) | 알고리즘별 트레이너, 통합 런처               |
-| [core](core)             | 매장, 손님, 직원, 플레이어 등 핵심 게임 로직 |
-| [modes](modes)           | human, versus, watch, tournament 모드        |
-| [rendering](rendering)   | 에셋 로딩, 화면 렌더링                       |
-| [config](config)         | 메뉴, 손님, 업그레이드, 특성, 맵 설정        |
-| [models](models)         | 학습 결과물 저장 폴더                        |
-| [docs](docs)             | 프로젝트 메모와 문서                         |
+```text
+RL-Tycoon-Agent/
+├─ main.py
+├─ requirements.txt
+├─ ai/
+│  ├─ agent.py
+│  ├─ gym_env.py
+│  ├─ reward.py
+│  └─ train.py
+├─ algorithms/
+│  ├─ registry.py
+│  ├─ train_launcher.py
+│  ├─ common.py
+│  ├─ compare_results.py
+│  ├─ ppo/
+│  ├─ dqn/
+│  ├─ rainbow/
+│  ├─ qrdqn/
+│  ├─ a3c/
+│  ├─ sac/
+│  ├─ discrete_sac/
+│  ├─ marl/
+│  ├─ model_based/
+│  ├─ dreamer/
+│  ├─ dreamerv3/
+│  ├─ muzero/
+│  └─ cross_play/
+├─ core/
+│  ├─ shop.py
+│  ├─ customer.py
+│  ├─ employee.py
+│  ├─ player.py
+│  └─ ranking.py
+├─ modes/
+│  ├─ human_mode.py
+│  ├─ versus_mode.py
+│  ├─ watch_mode.py
+│  └─ tournament_mode.py
+├─ rendering/
+│  ├─ asset_manager.py
+│  └─ renderer.py
+├─ config/
+│  ├─ settings.py
+│  ├─ customers.json
+│  ├─ delivery.json
+│  ├─ menu.json
+│  ├─ map_default.json
+│  ├─ traits.json
+│  └─ upgrades.json
+├─ assets/
+├─ data/
+├─ models/
+└─ venv/
+```
 
-## 추가 문서
+### 디렉토리 역할
 
-- [DEV_README.md](DEV_README.md): 현재 코드 구조와 RL 인터페이스 정리
-- [SPRITE_PROMPT_GUIDE.md](SPRITE_PROMPT_GUIDE.md): 스프라이트 제작 가이드
+- `ai/`: RL 환경, 모델 로더, 보상 계산
+- `algorithms/`: 알고리즘별 트레이너와 통합 학습 런처
+- `core/`: 게임 규칙과 엔티티 중심의 핵심 로직
+- `modes/`: 실제 플레이 및 관전 모드
+- `rendering/`: 렌더링과 에셋 관리
+- `config/`: 게임 규칙과 밸런스 설정 JSON
+- `models/`: 학습 결과 저장 폴더
+- `data/`: 랭킹 등 저장 데이터
+
+## 프로젝트 결론
+
+이 프로젝트는 레스토랑 운영 시뮬레이션 위에서 여러 강화학습 알고리즘을 실험하고, 동일한 환경에서 직접 비교할 수 있게 만든 RL 실험 플랫폼입니다.
+
+최종 결과 기준 핵심 결론은 다음과 같습니다.
+
+- 운영형 의사결정을 포함한 이산 행동 문제에서 `DiscreteSAC`가 가장 높은 성능을 보였다.
+- `CrossPlay`는 경쟁형 추가학습 구조 덕분에 강한 성능을 보였고 실험 관리도 안정적이었다.
+- `PPO`는 여전히 기본 비교 기준선으로 유효하지만, 최종 토너먼트 최고 성능은 아니었다.
+- `tournament` 모드는 프로젝트 결과를 가장 직관적으로 검증하는 최종 평가 수단이었다.
+
+따라서 이 프로젝트의 최종 대표 모델은 `DiscreteSAC`이며, 프로젝트 핵심 성과 역시 강화학습 기반 운영 전략 학습과 알고리즘 비교 실험에 있습니다.
