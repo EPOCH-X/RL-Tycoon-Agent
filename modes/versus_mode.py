@@ -110,6 +110,8 @@ class VersusMode(BaseMode):
 
         self._interact_pressed = False
         self.winner: str | None = None
+        self._ai_toast_text = ""
+        self._ai_toast_until = 0
 
         # PiP settings for AI view
         self._pip_scale = 0.25
@@ -194,9 +196,9 @@ class VersusMode(BaseMode):
         self.human_shop.step_logic(action)
 
         # AI – full step (movement + game logic)
-        obs = self._build_ai_obs()
         ai_action = self._decide_ai_action()
-        self.ai_shop.step(ai_action)
+        ai_events = self.ai_shop.step(ai_action)
+        self._capture_ai_toast(self.ai_shop, ai_events)
 
         # AI auto-selects traits
         self.ai_shop.auto_select_trait()
@@ -268,6 +270,8 @@ class VersusMode(BaseMode):
         self.screen.blit(bar_surf, (pip_x, pip_y))
         self.screen.blit(info_surf, (pip_x + 4, pip_y + 2))
 
+        self._draw_ai_toast(self.screen)
+
         # Game-over overlays
         if self._game_over():
             extra = self._winner_text()
@@ -304,3 +308,39 @@ class VersusMode(BaseMode):
                 return heuristic_action
         return self.agent.predict(
             obs, action_mask=self.ai_shop.get_action_mask())
+
+    def _capture_ai_toast(self, shop, events):
+        event_names = {name for name, _value in events}
+        if "buy_upgrade" in event_names or "select_trait" in event_names:
+            self._ai_toast_text = shop.message or "구매 완료"
+            self._ai_toast_until = pygame.time.get_ticks() + 1600
+
+    def _draw_ai_toast(self, surface: pygame.Surface):
+        if not self._ai_toast_text:
+            return
+        now = pygame.time.get_ticks()
+        if now >= self._ai_toast_until:
+            self._ai_toast_text = ""
+            return
+
+        available = [f.lower() for f in pygame.font.get_fonts()]
+        kr_font = None
+        for fn in ["malgungothic", "gulim", "dotum", "nanumgothic"]:
+            if fn in available:
+                kr_font = fn
+                break
+        font = pygame.font.SysFont(kr_font, 28, bold=True)
+        text = font.render(self._ai_toast_text, True, (255, 245, 180))
+        pad_x = 24
+        pad_y = 14
+        box = pygame.Rect(
+            surface.get_width() // 2 - text.get_width() // 2 - pad_x,
+            surface.get_height() // 2 - text.get_height() // 2 - pad_y,
+            text.get_width() + pad_x * 2,
+            text.get_height() + pad_y * 2,
+        )
+        bg = pygame.Surface((box.width, box.height), pygame.SRCALPHA)
+        bg.fill((20, 16, 10, 190))
+        surface.blit(bg, box.topleft)
+        pygame.draw.rect(surface, (220, 190, 90), box, 2, border_radius=14)
+        surface.blit(text, text.get_rect(center=box.center))

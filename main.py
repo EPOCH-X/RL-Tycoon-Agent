@@ -11,17 +11,23 @@ Launch the game in one of the supported modes:
 """
 
 import argparse
+import math
+import random
 import sys
 
 
 def _show_menu():
     """Pygame 기반 모드 선택 메뉴. (mode, days, model_path) 튜플 반환."""
     import pygame
+    from rendering.asset_manager import AssetManager
     pygame.init()
 
     WIDTH, HEIGHT = 520, 490
     screen = pygame.display.set_mode((WIDTH, HEIGHT))
     pygame.display.set_caption("RL 타이쿤 – 모드 선택")
+
+    am = AssetManager()
+    am.ensure_loaded()
 
     available = [f.lower() for f in pygame.font.get_fonts()]
     kr_font = None
@@ -60,8 +66,30 @@ def _show_menu():
     clock = pygame.time.Clock()
     running = True
     result = None
+    chef_pool = [img for idx, img in enumerate(am.chef_images) if idx != 5]
+    falling_chefs: list[dict] = []
+
+    def spawn_chef(spawn_y: float | None = None):
+        if not chef_pool:
+            return
+        img = random.choice(chef_pool)
+        scale = random.uniform(1.35, 2.05)
+        falling_chefs.append({
+            "image": img,
+            "x": random.uniform(20, WIDTH - 20),
+            "y": spawn_y if spawn_y is not None else random.uniform(-HEIGHT, -64),
+            "speed_y": random.uniform(60.0, 135.0),
+            "drift": random.uniform(-30.0, 30.0),
+            "angle": random.uniform(0.0, 360.0),
+            "spin": random.uniform(-220.0, 220.0),
+            "scale": scale,
+        })
+
+    for _ in range(10):
+        spawn_chef()
 
     while running:
+        dt = clock.tick(30) / 1000.0
         mouse_pos = pygame.mouse.get_pos()
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
@@ -77,9 +105,40 @@ def _show_menu():
                         running = False
                         break
 
+        if len(falling_chefs) < 12:
+            spawn_chef(-80.0)
+
+        for chef in falling_chefs:
+            chef["y"] += chef["speed_y"] * dt
+            chef["x"] += math.sin(chef["y"] * 0.02) * 8.0 * dt + chef["drift"] * dt
+            chef["angle"] = (chef["angle"] + chef["spin"] * dt) % 360.0
+            if chef["y"] > HEIGHT + 100:
+                chef.update({
+                    "x": random.uniform(20, WIDTH - 20),
+                    "y": random.uniform(-220, -80),
+                    "speed_y": random.uniform(60.0, 135.0),
+                    "drift": random.uniform(-30.0, 30.0),
+                    "angle": random.uniform(0.0, 360.0),
+                    "spin": random.uniform(-220.0, 220.0),
+                    "scale": random.uniform(1.35, 2.05),
+                })
+
+        falling_chefs.sort(key=lambda item: item["scale"])
+
         screen.fill(BG)
 
+        for chef in falling_chefs:
+            base = chef["image"]
+            scaled_size = max(24, int(base.get_width() * chef["scale"]))
+            scaled = pygame.transform.smoothscale(base, (scaled_size, scaled_size))
+            rotated = pygame.transform.rotozoom(scaled, chef["angle"], 1.0)
+            rect = rotated.get_rect(center=(int(chef["x"]), int(chef["y"])))
+            screen.blit(rotated, rect)
+
         # Title
+        title_shadow = title_font.render("RL 타이쿤", True, (40, 20, 10))
+        screen.blit(title_shadow,
+                     (WIDTH // 2 - title_shadow.get_width() // 2 + 2, 32))
         title_surf = title_font.render("RL 타이쿤", True, ACCENT)
         screen.blit(title_surf,
                      (WIDTH // 2 - title_surf.get_width() // 2, 30))
@@ -107,7 +166,6 @@ def _show_menu():
         screen.blit(foot, (WIDTH // 2 - foot.get_width() // 2, HEIGHT - 36))
 
         pygame.display.flip()
-        clock.tick(30)
 
     pygame.quit()
     return result
