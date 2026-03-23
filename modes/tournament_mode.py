@@ -115,12 +115,12 @@ class TournamentMode(BaseMode):
         self._internal_w = cols * self._panel_w + (cols - 1) * div
         self._internal_h = rows * self._panel_h + (rows - 1) * div
 
-        # Add scoreboard area at bottom
-        self._scoreboard_h = 160
-        self._internal_h += self._scoreboard_h
+        self._scoreboard_row_h = 28
+        self._scoreboard_w = min(920, max(560, self._internal_w - 28))
+        self._scoreboard_h = 108 + len(self._entries) * self._scoreboard_row_h
 
-        # 축소 렌더링 (0.45×)
-        self._scale = 0.45
+        # 하단 대시보드를 제거했으므로 화면은 조금만 더 크게 보여줍니다.
+        self._scale = 0.48
         screen_w = int(self._internal_w * self._scale)
         screen_h = int(self._internal_h * self._scale)
         self._render_surface = pygame.Surface(
@@ -233,8 +233,8 @@ class TournamentMode(BaseMode):
             pygame.draw.rect(surf, VERSUS_DIVIDER_COLOR,
                              (0, y, total_w, div))
 
-        # ── Scoreboard ──
-        self._draw_scoreboard(total_h, surf)
+        # ── Scoreboard overlay ──
+        self._draw_scoreboard(surf)
 
         # ── Policy / Speed info ──
         font_sm = self._get_font(14)
@@ -244,7 +244,11 @@ class TournamentMode(BaseMode):
             f"속도: ×{self.speed_multiplier:.1f}  정책: {policy_str}  "
             f"D: 정책전환  ↑↓: 속도조절  R: 재시작  ESC: 종료",
             True, (140, 140, 160))
-        surf.blit(speed_txt, (4, self._internal_h - 18))
+        info_bg = pygame.Surface((speed_txt.get_width() + 16, speed_txt.get_height() + 10), pygame.SRCALPHA)
+        info_bg.fill((12, 14, 24, 180))
+        info_pos = (8, self._internal_h - speed_txt.get_height() - 14)
+        surf.blit(info_bg, (info_pos[0] - 8, info_pos[1] - 5))
+        surf.blit(speed_txt, info_pos)
 
         # ── Game over overlay ──
         if self._all_done:
@@ -267,30 +271,30 @@ class TournamentMode(BaseMode):
         self.screen.blit(scaled, (0, 0))
         pygame.display.flip()
 
-    def _draw_scoreboard(self, y_start: int,
-                         surface: pygame.Surface | None = None):
-        """화면 하단에 실시간 스코어보드를 그립니다."""
+    def _draw_scoreboard(self, surface: pygame.Surface | None = None):
+        """화면 중앙에 실시간 스코어보드 오버레이를 그립니다."""
         dst = surface or self.screen
-        font = self._get_font(18)
-        font_sm = self._get_font(14)
+        font = self._get_font(24)
+        font_sm = self._get_font(18)
 
-        # Background
-        board_rect = pygame.Rect(0, y_start, dst.get_width(),
-                                 self._scoreboard_h)
-        pygame.draw.rect(dst, (25, 25, 45), board_rect)
-        pygame.draw.line(dst, (80, 80, 120),
-                         (0, y_start), (dst.get_width(), y_start), 2)
+        board_rect = pygame.Rect(0, 0, self._scoreboard_w, self._scoreboard_h)
+        board_rect.center = (self._internal_w // 2, self._internal_h // 2 - 16)
+
+        overlay = pygame.Surface((board_rect.width, board_rect.height), pygame.SRCALPHA)
+        overlay.fill((12, 16, 28, 210))
+        dst.blit(overlay, board_rect.topleft)
+        pygame.draw.rect(dst, (88, 118, 170), board_rect, width=2, border_radius=18)
+        pygame.draw.rect(dst, (34, 42, 64), board_rect.inflate(-12, -12), width=1, border_radius=14)
 
         # Title
         title = font.render("토너먼트 스코어보드", True, (255, 215, 0))
-        dst.blit(title, (10, y_start + 8))
+        dst.blit(title, (board_rect.x + 22, board_rect.y + 16))
 
         # Headers
-        hx = 10
-        hy = y_start + 35
-        headers = ["순위", "참가자", "스코어", "수익($)", "평점",
-                    "서빙", "이탈", "상태"]
-        col_widths = [50, 180, 100, 100, 80, 60, 60, 80]
+        hx = board_rect.x + 22
+        hy = board_rect.y + 56
+        headers = ["순위", "참가자", "스코어", "수익($)", "평점", "상태"]
+        col_widths = [70, 270, 138, 138, 100, 132]
         for header, cw in zip(headers, col_widths):
             h_surf = font_sm.render(header, True, (160, 180, 200))
             dst.blit(h_surf, (hx, hy))
@@ -317,9 +321,13 @@ class TournamentMode(BaseMode):
 
         # Rows
         for rank, s in enumerate(scored, 1):
-            rx = 10
-            ry = hy + 20 + (rank - 1) * 20
+            rx = board_rect.x + 22
+            ry = hy + 28 + (rank - 1) * self._scoreboard_row_h
             color = self._participant_color(s["idx"])
+
+            row_bg = pygame.Surface((board_rect.width - 28, self._scoreboard_row_h - 3), pygame.SRCALPHA)
+            row_bg.fill((255, 255, 255, 16 if rank == 1 else 8))
+            dst.blit(row_bg, (board_rect.x + 14, ry - 3))
 
             status = "✓완료" if s["done"] else "진행중..."
             if s["won"]:
@@ -331,8 +339,6 @@ class TournamentMode(BaseMode):
                 f"{s['score']:,.0f}",
                 f"${s['net_profit']:,}",
                 f"{s['rating']:.1f}★",
-                str(s["served"]),
-                str(s["lost"]),
                 status,
             ]
             for val, cw in zip(values, col_widths):
