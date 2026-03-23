@@ -136,6 +136,9 @@ class TournamentMode(BaseMode):
         self.speed_multiplier = max(0.5, speed_multiplier)
         self._all_done = False
         self._rankings: list[dict] = []
+        for entry in self._entries:
+            entry["toast_text"] = ""
+            entry["toast_until"] = 0
 
     # ── events ───────────────────────────────────
     def handle_events(self):
@@ -177,7 +180,8 @@ class TournamentMode(BaseMode):
                 any_running = True
                 obs = build_observation(shop)
                 action = entry["agent"].predict(obs)
-                shop.step(action)
+                events = shop.step(action)
+                self._capture_entry_toast(entry, events)
 
             if not any_running:
                 self._all_done = True
@@ -214,6 +218,7 @@ class TournamentMode(BaseMode):
             lbl_bg.fill((0, 0, 0, 160))
             surf.blit(lbl_bg, (ox + 2, oy + 2))
             surf.blit(label, (ox + 6, oy + 4))
+            self._draw_entry_toast(surf, entry, ox, oy)
 
         # ── Dividers ──
         total_w = self._cols * self._panel_w + (self._cols - 1) * div
@@ -354,6 +359,34 @@ class TournamentMode(BaseMode):
             print(f"  ║ {medal} #{i}  {r['name']:<20s}"
                   f"  스코어: {r['score']:>8,.0f}{won_str}")
         print("  ╚══════════════════════════════════════╝")
+
+    def _capture_entry_toast(self, entry: dict, events):
+        event_names = {name for name, _value in events}
+        if "buy_upgrade" in event_names or "select_trait" in event_names:
+            entry["toast_text"] = entry["shop"].message or "구매 완료"
+            entry["toast_until"] = pygame.time.get_ticks() + 1600
+
+    def _draw_entry_toast(self, surface: pygame.Surface, entry: dict,
+                         ox: int, oy: int):
+        text_value = entry.get("toast_text", "")
+        if not text_value:
+            return
+        now = pygame.time.get_ticks()
+        until = entry.get("toast_until", 0)
+        if now >= until:
+            entry["toast_text"] = ""
+            return
+
+        font = self._get_font(26)
+        text = font.render(text_value, True, (255, 245, 180))
+        panel_rect = pygame.Rect(ox, oy, self._panel_w, self._panel_h)
+        box = pygame.Rect(0, 0, text.get_width() + 32, text.get_height() + 20)
+        box.center = panel_rect.center
+        bg = pygame.Surface((box.width, box.height), pygame.SRCALPHA)
+        bg.fill((20, 16, 10, 190))
+        surface.blit(bg, box.topleft)
+        pygame.draw.rect(surface, (220, 190, 90), box, 2, border_radius=14)
+        surface.blit(text, text.get_rect(center=box.center))
 
     def _draw_final_results(self, surface: pygame.Surface):
         """게임 종료 후 최종 순위를 화면 가운데 오버레이로 표시합니다."""
