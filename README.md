@@ -14,6 +14,7 @@ Pygame 기반 레스토랑 타이쿤 게임에 강화학습 실험 환경을 결
 - 실행 모드: `human`, `versus`, `watch`, `tournament`
 - 학습 런처: `python -m algorithms.train_launcher`
 - 현재 등록 알고리즘: `PPO`, `DQN`, `Rainbow`, `QRDQN`, `A3C`, `SAC`, `MARL`, `ModelBased`, `DiscreteSAC`, `Dreamer`, `DreamerV3`, `MuZero`, `CrossPlay`
+<img width="1962" height="1437" alt="image" src="https://github.com/user-attachments/assets/3659108c-50dc-431c-bbf7-429fffcc71d8" />
 
 ## 최종 결과 요약
 
